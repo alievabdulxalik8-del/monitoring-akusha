@@ -160,6 +160,8 @@ async function loadDefaultPack() {
   return normalizePack(await r.json());
 }
 function savePack() { store.set(PACK_KEY, pack); }
+// пакет изменён вручную (редактор или загрузка файла) — тогда не подменяем его стандартным с сайта
+function markCustom(on) { store.set(PACK_KEY + '_custom', !!on); }
 
 // ---------- Состояние игры ----------
 function newCode() { return String(Math.floor(1000 + Math.random() * 9000)); }
@@ -524,7 +526,7 @@ $('#tabEdit').onclick = () => showTab(true);
 // ---------- Редактор вопросов ----------
 let edTimer = null;
 function packChanged() {
-  savePack();
+  savePack(); markCustom(true);
   clearTimeout(edTimer);
   edTimer = setTimeout(() => { broadcast(); render(); }, 600);
 }
@@ -569,18 +571,18 @@ $('#fileUpload').onchange = async (e) => {
   if (!f) return;
   try {
     pack = normalizePack(JSON.parse(await f.text()));
-    savePack(); renderEditor(); broadcast(); render();
+    savePack(); markCustom(true); renderEditor(); broadcast(); render();
     toast('Пакет «' + pack.title + '» загружен');
   } catch (err) { alert('Не удалось загрузить пакет: ' + err.message); }
 };
 $('#btnDefault').onclick = async () => {
   if (!confirm('Заменить текущие вопросы стандартным пакетом? Сначала можно «Скачать пакет», чтобы не потерять свои.')) return;
-  pack = await loadDefaultPack(); savePack(); renderEditor(); broadcast(); render();
+  pack = await loadDefaultPack(); savePack(); markCustom(false); renderEditor(); broadcast(); render();
 };
 
 // ---------- Запуск ----------
 (async function init() {
-  try { pack = store.get(PACK_KEY, null) ? normalizePack(store.get(PACK_KEY)) : await loadDefaultPack(); }
+  try { pack = store.get(PACK_KEY, null) && store.get(PACK_KEY + '_custom', false) ? normalizePack(store.get(PACK_KEY)) : await loadDefaultPack(); }
   catch (e) { alert('Не удалось загрузить вопросы: ' + e.message); return; }
   savePack();
   S = store.get(STATE_KEY, null) || freshState(newCode());
