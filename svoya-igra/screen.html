@@ -43,6 +43,9 @@
   .names span { background: var(--bg2); border: 2px solid #2b3fa0; border-radius: 1vh; padding: 0.6vh 1.4vw; font-size: 3vh; }
   table.res { margin: 2vh auto 0; border-collapse: collapse; font-size: 3.6vh; }
   table.res td, table.res th { padding: 1vh 2vw; border-bottom: 2px solid #2b3fa0; text-align: left; }
+  .qimg { display: block; margin: 2vh auto 0; max-width: 80vw; max-height: 42vh; border-radius: 1.5vh; box-shadow: 0 1vh 4vh rgba(0,0,0,.5); }
+  .imgwait.qimg { width: 50vw; height: 30vh; }
+  .sp-title { text-align: center; font-size: 9vh; margin-bottom: 2vh; }
   .ok { color: #8dffb9; } .bad { color: #ffb3b0; }
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 10; cursor: pointer; text-align: center; font-size: 4vh; }
   #overlay b { color: var(--gold); }
@@ -111,6 +114,7 @@ if (!room) {
 }
 
 function onMsg(m) {
+  if (m && m.t === 'img') { SV.imgCache[m.key] = m.data; if (st) render(); return; }
   if (!m || m.t !== 'state' || m.room !== room) return;
   lastAt = Date.now();
   const prev = st;
@@ -140,7 +144,8 @@ function render() {
       <div class="n">${esc(p.name)}</div><div class="s">${SV.money(p.score)}</div></div>`).join('');
   const el = $('#stage');
   const cur = st.cur;
-  const head = cur ? `<div class="qhead">${esc(cur.theme)} · ${cur.value}</div><div class="qtext">${esc(cur.text)}</div>` : '';
+  const sp = cur && cur.special;
+  const head = cur ? `${sp ? '<div class="sp-title" style="font-size:4vh;margin:0">' + SV.specialTitle(sp) + '</div>' : ''}<div class="qhead">${esc(cur.theme)} · ${sp ? 'ставка ' + sp.bet : cur.value}</div><div class="qtext">${esc(cur.text)}</div>${SV.imgHtml(cur.img, conn, 'qimg', cur.imgCredit)}` : '';
   const ans = cur && cur.answer != null ? `<div class="answer">Ответ: <b>${esc(cur.answer)}</b></div>` : '';
   let h = '';
   switch (ph) {
@@ -169,6 +174,17 @@ function render() {
     }
     case 'question':
       h = head + ans;
+      break;
+    case 'cat':
+      h = `<div class="sp-title">🐱 Кот в мешке!</div><div class="qhead">Тема: ${esc(cur.theme)} · ${cur.value}</div>
+        <div class="state">${st.chooser ? esc(nameOf(st.chooser)) + ' отдаёт вопрос другому игроку' : 'Ведущий отдаёт вопрос игроку'}</div>`;
+      break;
+    case 'auction':
+      h = `<div class="sp-title">🔨 Аукцион!</div><div class="qhead">${esc(cur.theme)} · номинал ${cur.value}</div>
+        <div class="state">Торгуемся! Ставка — не меньше ${cur.value} или ва-банк</div>`;
+      break;
+    case 'special':
+      h = head + `<div class="buzz"><div class="lbl">Отвечает</div><div class="who">${esc(nameOf(sp.to))}</div></div>` + ans;
       break;
     case 'open':
       h = head + `<div class="timerbar"><div id="tfill"></div></div>` + ans;

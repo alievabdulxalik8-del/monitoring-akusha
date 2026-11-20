@@ -47,11 +47,16 @@
   table.final button.sel { outline: 3px solid #fff; }
   /* редактор */
   .ed-theme { background: var(--bg2); border: 2px solid #2b3fa0; border-radius: 14px; padding: 12px; margin-bottom: 14px; }
-  .ed-q { display: grid; grid-template-columns: 56px 1fr 1fr; gap: 8px; margin-top: 8px; align-items: start; }
+  .ed-q { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 8px; margin-top: 8px; align-items: start; }
   .ed-q .v { color: var(--gold); font-weight: 800; padding-top: 10px; }
   .ed-q textarea { min-height: 54px; resize: vertical; }
   @media (max-width: 640px) { .ed-q { grid-template-columns: 1fr; } .ed-q .v { padding-top: 0; } }
   label.l { display: block; color: var(--muted); font-size: 14px; margin: 6px 0 3px; }
+  .qimg { display: block; max-width: 100%; max-height: 260px; border-radius: 10px; margin: 0 0 12px; background: #000; }
+  .ed-img { max-width: 100%; max-height: 90px; border-radius: 6px; display: block; margin-top: 6px; }
+  .special { font-size: 30px; font-weight: 900; color: var(--gold); letter-spacing: 0.04em; }
+  .board .cell small { font-size: 0.7em; margin-left: 2px; }
+  .ed-q select { padding: 8px; border-radius: 10px; }
   .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--gold); color: #111; padding: 10px 18px; border-radius: 10px; font-weight: 700; z-index: 20; }
 </style>
 </head>
@@ -108,6 +113,7 @@
         <button id="btnUpload">Загрузить пакет</button>
         <button id="btnDefault" class="ghost">Вернуть стандартный пакет</button>
         <input type="file" id="fileUpload" accept=".json,application/json" class="hidden" />
+        <input type="file" id="photoUpload" accept="image/*" class="hidden" />
       </div>
     </div>
     <div id="edThemes"></div>
@@ -149,7 +155,12 @@ function normalizePack(p) {
     const qs = Array.isArray(th.questions) ? th.questions : [];
     out.themes.push({
       name: String(th.name || 'Тема ' + (t + 1)),
-      questions: VALUES.map((v, i) => ({ q: String((qs[i] && qs[i].q) || ''), a: String((qs[i] && qs[i].a) || '') })),
+      questions: VALUES.map((v, i) => {
+        const x = qs[i] || {};
+        const type = x.type === 'cat' || x.type === 'auction' ? x.type : '';
+        const img = typeof x.img === 'string' && /^(https?:\/\/|data:image\/|img\/)/.test(x.img) ? x.img : '';
+        return { q: String(x.q || ''), a: String(x.a || ''), type, catTheme: type === 'cat' ? String(x.catTheme || '') : '', img, imgCredit: img ? String(x.imgCredit || '') : '' };
+      }),
     });
   }
   const f = p.final || {};
@@ -171,6 +182,7 @@ function freshState(room, players) {
     room, phase: 'lobby', players: players || [], removed: [], played: {},
     cur: null, round: 0, buzz: [], wrong: [], firstAt: 0, openUntil: 0,
     revealed: false, chooser: null, correctId: null, final: null,
+    special: null, // кот в мешке / аукцион: {type, to, bet}
   };
 }
 function save() { store.set(STATE_KEY, S); }
@@ -196,7 +208,16 @@ function publicState() {
     players: S.players.map((p) => ({ id: p.id, name: p.name, score: p.score, online: isOnline(p.id) })),
     themes: pack.themes.map((t) => t.name),
     played: pack.themes.map((t, ti) => VALUES.map((v, i) => !!S.played[ti + '-' + i])),
-    cur: S.cur ? { t: S.cur.t, i: S.cur.i, theme: pack.themes[S.cur.t].name, value: curValue(), text: q.q, answer: S.revealed ? q.a : null } : null,
+    cur: S.cur ? {
+      t: S.cur.t, i: S.cur.i, value: curValue(),
+      theme: q.type === 'cat' && q.catTheme ? q.catTheme : pack.themes[S.cur.t].name,
+      // пока кота не отдали и торги не закончились, текст вопроса никому не показываем
+      text: S.phase === 'cat' || S.phase === 'auction' ? null : q.q,
+      answer: S.revealed ? q.a : null,
+      img: S.phase === 'cat' || S.phase === 'auction' ? null : imgRef(q.img),
+      imgCredit: q.imgCredit || '',
+      special: S.special ? { type: S.special.type, to: S.phase === 'special' || S.phase === 'reveal' ? S.special.to : null, bet: S.special.bet } : null,
+    } : null,
     buzz: S.buzz, wrong: S.wrong, chooser: S.chooser, correct: S.correctId || null,
     timerLeft: S.phase === 'open' ? Math.max(0, S.openUntil - Date.now()) : null,
     final: F ? {
@@ -207,6 +228,23 @@ function publicState() {
     } : null,
   };
 }
+// Фото из файла (data:…) слишком большое, чтобы слать его каждые 4 секунды:
+// в состоянии идёт только короткий ключ, а сама картинка — отдельным сообщением по запросу.
+const imgKeys = {};
+function imgRef(img) {
+  if (!img || !img.startsWith('data:')) return img ? new URL(img, location.href).href : null;
+  if (!imgKeys[img]) { let h = 5381; for (let k = 0; k < img.length; k += 7) h = ((h * 33) ^ img.charCodeAt(k)) >>> 0; imgKeys[img] = 'k' + h.toString(36) + img.length.toString(36); }
+  return imgKeys[img];
+}
+let imgSentAt = {};
+function sendImg(key) {
+  if (!S.cur) return;
+  const q = curQ();
+  if (!q.img || imgRef(q.img) !== key) return;
+  if (Date.now() - (imgSentAt[key] || 0) < 1500) return; // не чаще раза в 1,5 с
+  imgSentAt[key] = Date.now();
+  conn.send({ t: 'img', key, data: q.img });
+}
 function broadcast() { if (conn) conn.send(publicState()); }
 function commit() { save(); broadcast(); render(); }
 
@@ -216,6 +254,7 @@ function onMsg(m) {
   if (m.id) lastSeen[m.id] = Date.now();
   switch (m.t) {
     case 'hi': broadcast(); break;
+    case 'needimg': sendImg(m.key); break;
     case 'hello': {
       const name = String(m.name || '').trim().slice(0, 24);
       if (!m.id || !name) return;
@@ -270,7 +309,11 @@ const A = {
     if (!['board', 'lobby', 'reveal'].includes(S.phase)) return;
     const key = t + '-' + i;
     if (S.played[key] && !confirm('Этот вопрос уже сыгран. Открыть его снова?')) return;
-    S.cur = { t, i }; S.phase = 'question'; S.revealed = false; S.buzz = []; S.wrong = []; S.correctId = null;
+    S.cur = { t, i }; S.revealed = false; S.buzz = []; S.wrong = []; S.correctId = null;
+    const type = pack.themes[t].questions[i].type;
+    S.special = type ? { type, to: type === 'auction' ? S.chooser : null, bet: VALUES[i] } : null;
+    S.phase = type || 'question';
+    if (type) SV.beep('good');
     commit();
   },
   open() {
@@ -297,8 +340,31 @@ const A = {
     commit();
   },
   reveal() { S.revealed = true; commit(); },
-  cancel() { S.cur = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
-  toBoard() { S.cur = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
+  cancel() { S.cur = null; S.special = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
+  toBoard() { S.cur = null; S.special = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
+  // кот в мешке: выбирающий отдаёт вопрос другому игроку
+  catGive(id) { if (S.phase !== 'cat' || !player(id)) return; S.special.to = id; S.special.bet = curValue(); S.phase = 'special'; commit(); },
+  // аукцион: кто выиграл торги и сколько поставил
+  aucWho(id) { if (S.phase !== 'auction' || !player(id)) return; S.special.to = id; commit(); },
+  aucAllIn() { const p = player(S.special.to); if (!p) return alert('Сначала выберите игрока'); S.special.bet = Math.max(p.score, curValue()); commit(); },
+  aucGo() {
+    const sp = S.special, p = player(sp.to);
+    if (!p) return alert('Выберите, кто выиграл торги');
+    const bet = Math.round(Number(sp.bet));
+    if (!(bet > 0)) return alert('Укажите ставку');
+    if (bet < curValue() && bet !== p.score && !confirm('Ставка меньше номинала (' + curValue() + ') и это не ва-банк. Всё равно продолжить?')) return;
+    sp.bet = bet; S.phase = 'special'; commit();
+  },
+  spCorrect() {
+    const p = player(S.special.to);
+    if (p) { p.score += S.special.bet; S.chooser = p.id; S.correctId = p.id; }
+    S.revealed = true; S.played[S.cur.t + '-' + S.cur.i] = true; S.phase = 'reveal'; SV.beep('good'); commit();
+  },
+  spWrong() {
+    const p = player(S.special.to);
+    if (p) p.score -= S.special.bet;
+    S.revealed = true; S.played[S.cur.t + '-' + S.cur.i] = true; S.phase = 'reveal'; SV.beep('bad'); commit();
+  },
   startFinal() {
     const el = S.players.filter((p) => p.score > 0).map((p) => p.id);
     if (!el.length) { alert('В финал проходят игроки с плюсом на счету, а таких сейчас нет.'); return; }
@@ -344,6 +410,7 @@ const A = {
     S.buzz = S.buzz.filter((b) => b.id !== id);
     if (S.final) S.final.eligible = S.final.eligible.filter((x) => x !== id);
     if (S.chooser === id) S.chooser = null;
+    if (S.special && S.special.to === id) { S.special.to = null; if (S.phase === 'special') S.phase = S.special.type; }
     if (S.phase === 'answering' && !S.buzz.length) { S.phase = 'open'; S.openUntil = Date.now() + SV.BUZZ_MS; S.round++; }
     conn.send({ t: 'kicked', id });
     commit();
@@ -358,7 +425,7 @@ function renderControl() {
   const el = $('#control');
   const q = curQ();
   const v = curValue();
-  const head = S.cur ? `<div class="qtitle">${esc(pack.themes[S.cur.t].name)} · ${v}</div><div class="qtext">${esc(q.q) || '<span class="muted">(вопрос не заполнен)</span>'}</div>
+  const head = S.cur ? `<div class="qtitle">${esc(q.type === 'cat' && q.catTheme ? q.catTheme : pack.themes[S.cur.t].name)} · ${v}</div><div class="qtext">${esc(q.q) || '<span class="muted">(вопрос не заполнен)</span>'}</div>${q.img ? `<img class="qimg" src="${esc(q.img)}" alt="" />` + (q.imgCredit ? `<div class="muted" style="font-size:12px;margin:-8px 0 10px">${esc(q.imgCredit)}</div>` : '') : ''}
       <div class="answer">Ответ: <b>${esc(q.a)}</b> ${S.revealed ? '<span class="muted">(виден на экране)</span>' : '<span class="muted">(видите только вы)</span>'}</div>` : '';
   const timer = `<div class="timerbar"><div id="tfill"></div></div>`;
   let h = '';
@@ -401,6 +468,38 @@ function renderControl() {
       h = head + `<div class="buzzer" style="color:var(--muted)">${S.players.length && S.players.every((p) => S.wrong.includes(p.id) || !isOnline(p.id)) ? 'Ответить больше некому' : 'Время вышло — никто не нажал'}</div>
         <div class="row"><button class="gold big" data-a="nobody">Никто не ответил — показать ответ</button><button data-a="open">Открыть ещё 10 с</button></div>`;
       break;
+    case 'cat': {
+      const others = S.players.filter((p) => p.id !== S.chooser);
+      const list = others.length ? others : S.players;
+      h = `<div class="special">🐱 КОТ В МЕШКЕ</div>
+        <div class="qtitle">Тема кота: ${esc(q.catTheme || pack.themes[S.cur.t].name)} · ${v}</div>
+        <p>${S.chooser ? '<b class="gold-text">' + esc(nameOf(S.chooser)) + '</b> отдаёт вопрос другому игроку.' : 'Ведущий отдаёт вопрос игроку.'} Кому?</p>
+        <div class="row">${list.map((p) => `<button class="gold" data-a="catGive" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('') || '<span class="muted">Нет игроков</span>'}</div>
+        <div class="qtext muted" style="font-size:17px;margin-top:14px">Вопрос (пока видите только вы): ${esc(q.q)}<br>Ответ: ${esc(q.a)}</div>
+        <div class="row"><button class="ghost" data-a="cancel">Отменить вопрос</button></div>`;
+      break;
+    }
+    case 'auction': {
+      const sp = S.special;
+      h = `<div class="special">🔨 АУКЦИОН</div>
+        <div class="qtitle">${esc(pack.themes[S.cur.t].name)} · номинал ${v}</div>
+        <p class="muted">Игроки торгуются вслух: ставка не меньше ${v}, или ва-банк (весь счёт). Кто выиграл торги?</p>
+        <div class="row">${S.players.map((p) => `<button class="${sp.to === p.id ? 'gold' : ''}" data-a="aucWho" data-id="${esc(p.id)}">${esc(p.name)} <span style="opacity:.75">${SV.money(p.score)}</span></button>`).join('')}</div>
+        <div class="row" style="align-items:center"><span>Ставка:</span><input id="aucBet" type="number" inputmode="numeric" min="1" value="${sp.bet}" style="max-width:160px" />
+          <button data-a="aucAllIn">Ва-банк</button></div>
+        <div class="row"><button class="gold big" data-a="aucGo">Задать вопрос</button><button class="ghost" data-a="cancel">Отменить вопрос</button></div>
+        <div class="qtext muted" style="font-size:17px;margin-top:14px">Вопрос (пока видите только вы): ${esc(q.q)}<br>Ответ: ${esc(q.a)}</div>`;
+      break;
+    }
+    case 'special': {
+      const sp = S.special;
+      h = `<div class="special">${sp.type === 'cat' ? '🐱 КОТ В МЕШКЕ' : '🔨 АУКЦИОН'}</div>` + head.replace(`· ${v}</div>`, `· ставка ${sp.bet}</div>`) +
+        `<div class="buzzer">Отвечает: ${esc(nameOf(sp.to))}</div>
+        <p class="muted">Остальные не жмут — отвечает только этот игрок.</p>
+        <div class="row"><button class="green big" data-a="spCorrect">Верно +${sp.bet}</button><button class="red big" data-a="spWrong">Неверно −${sp.bet}</button></div>
+        <div class="row"><button data-a="reveal">Показать ответ</button></div>`;
+      break;
+    }
     case 'reveal':
       h = head + `<div class="row"><button class="gold big" data-a="toBoard">К табло</button></div>`;
       break;
@@ -446,7 +545,7 @@ function renderBoard() {
     VALUES.forEach((v, i) => {
       const played = S.played[ti + '-' + i];
       const cur = S.cur && S.cur.t === ti && S.cur.i === i;
-      h += `<button class="cell ${played ? 'played' : ''} ${cur ? 'current' : ''}" data-a="pick" data-t="${ti}" data-i="${i}">${v}</button>`;
+      h += `<button class="cell ${played ? 'played' : ''} ${cur ? 'current' : ''}" data-a="pick" data-t="${ti}" data-i="${i}">${v}${t.questions[i].type === 'cat' ? '<small title="Кот в мешке">🐱</small>' : t.questions[i].type === 'auction' ? '<small title="Аукцион">🔨</small>' : ''}${t.questions[i].img ? '<small title="Фото-вопрос">📷</small>' : ''}</button>`;
     });
   });
   $('#board').innerHTML = h + '</div>';
@@ -501,7 +600,7 @@ document.addEventListener('click', (e) => {
   if (a === 'pick') A.pick(+d.t, +d.i);
   else if (a === 'mark') A.mark(d.id, d.ok === '1');
   else if (a === 'addScore') A.addScore(d.id, +d.d);
-  else if (a === 'setScore' || a === 'remove') A[a](d.id);
+  else if (a === 'setScore' || a === 'remove' || a === 'catGive' || a === 'aucWho') A[a](d.id);
   else if (A[a]) A[a]();
 });
 
@@ -529,6 +628,10 @@ $('#btnNew').onclick = () => {
   location.reload();
 };
 
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'aucBet' && S.special) { S.special.bet = Number(e.target.value) || 0; save(); }
+});
+
 // ---------- Вкладки ----------
 function showTab(edit) {
   $('#viewGame').classList.toggle('hidden', edit);
@@ -554,7 +657,15 @@ function renderEditor() {
       <label class="l">Тема ${ti + 1}</label>
       <input data-ed="theme" data-t="${ti}" value="${esc(t.name)}" style="font-weight:700" />
       ${t.questions.map((q, i) => `
-        <div class="ed-q"><div class="v">${VALUES[i]}</div>
+        <div class="ed-q"><div class="v">${VALUES[i]}
+            <select data-ed="type" data-t="${ti}" data-i="${i}" title="Тип вопроса">
+              <option value="" ${!q.type ? 'selected' : ''}>обычный</option>
+              <option value="cat" ${q.type === 'cat' ? 'selected' : ''}>🐱 кот</option>
+              <option value="auction" ${q.type === 'auction' ? 'selected' : ''}>🔨 аукцион</option>
+            </select>
+            ${q.type === 'cat' ? `<input data-ed="catTheme" data-t="${ti}" data-i="${i}" placeholder="Тема кота" value="${esc(q.catTheme)}" style="margin-top:6px;font-size:14px;padding:6px" />` : ''}
+            <button type="button" data-ph="${ti}-${i}" style="margin-top:6px;padding:6px 8px;font-size:14px">📷 ${q.img ? 'Другое фото' : 'Фото'}</button>
+            ${q.img ? `<img class="ed-img" src="${esc(q.img)}" alt="" /><button type="button" data-phdel="${ti}-${i}" class="ghost" style="margin-top:4px;padding:4px 8px;font-size:13px">Убрать фото</button>` : ''}</div>
           <textarea data-ed="q" data-t="${ti}" data-i="${i}" placeholder="Вопрос">${esc(q.q)}</textarea>
           <textarea data-ed="a" data-t="${ti}" data-i="${i}" placeholder="Ответ">${esc(q.a)}</textarea></div>`).join('')}
     </div>`).join('');
@@ -571,9 +682,58 @@ $('#viewEdit').addEventListener('input', (e) => {
   else if (d.ed === 'theme') pack.themes[+d.t].name = el.value;
   else if (d.ed === 'q') pack.themes[+d.t].questions[+d.i].q = el.value;
   else if (d.ed === 'a') pack.themes[+d.t].questions[+d.i].a = el.value;
+  else if (d.ed === 'catTheme') pack.themes[+d.t].questions[+d.i].catTheme = el.value;
+  else if (d.ed === 'type') { const qq = pack.themes[+d.t].questions[+d.i]; qq.type = el.value; if (qq.type !== 'cat') qq.catTheme = ''; packChanged(); renderEditor(); return; }
   else return;
   packChanged();
 });
+// ---- фото к вопросу: с компьютера (уменьшаем) или по ссылке
+let photoFor = null;
+$('#viewEdit').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ph],[data-phdel]');
+  if (!b) return;
+  const [t, i] = (b.dataset.ph || b.dataset.phdel).split('-').map(Number);
+  const q = pack.themes[t].questions[i];
+  if (b.dataset.phdel) { q.img = ''; q.imgCredit = ''; packChanged(); renderEditor(); return; }
+  const url = prompt('Вставьте ССЫЛКУ на фото из интернета.\nИли нажмите «Отмена», чтобы выбрать фото с компьютера/телефона.', q.img && !q.img.startsWith('data:') ? q.img : '');
+  if (url && url.trim()) {
+    if (!/^https?:\/\//.test(url.trim())) return alert('Ссылка должна начинаться с http:// или https://');
+    q.img = url.trim(); q.imgCredit = ''; packChanged(); renderEditor(); return;
+  }
+  photoFor = q; $('#photoUpload').click();
+});
+$('#photoUpload').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f || !photoFor) return;
+  try {
+    photoFor.img = await shrinkImage(f); photoFor.imgCredit = '';
+    if (!photoFor.q.trim()) photoFor.q = 'Что изображено на фото?';
+    packChanged(); renderEditor(); toast('Фото добавлено');
+  } catch (err) { alert('Не удалось открыть фото: ' + err.message); }
+};
+// уменьшить фото до ~900 px и сжать в JPEG, чтобы оно быстро доходило до телефонов
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let max = 900, quality = 0.75, out = '';
+      for (let k = 0; k < 6; k++) {
+        const sc = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL('image/jpeg', quality);
+        if (out.length < 160000) break;
+        max = Math.round(max * 0.8); quality = Math.max(0.5, quality - 0.08);
+      }
+      URL.revokeObjectURL(img.src);
+      resolve(out);
+    };
+    img.onerror = () => reject(new Error('это не картинка'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 $('#btnDownload').onclick = () => {
   const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');

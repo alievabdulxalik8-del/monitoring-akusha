@@ -115,6 +115,24 @@
     document.addEventListener('click', () => { if (!lock || lock.released) req(); });
   };
 
+  // Фото к вопросу: ссылку показываем сразу, фото из файла просим у пульта по ключу
+  SV.imgCache = {};
+  const askedAt = {};
+  SV.imgSrc = (ref, conn) => {
+    if (!ref) return null;
+    if (/^(https?:|data:)/.test(ref)) return ref;
+    if (SV.imgCache[ref]) return SV.imgCache[ref];
+    if (conn && Date.now() - (askedAt[ref] || 0) > 3000) { askedAt[ref] = Date.now(); conn.send({ t: 'needimg', key: ref }); }
+    return '';
+  };
+  SV.imgHtml = (ref, conn, cls, credit) => {
+    const src = SV.imgSrc(ref, conn);
+    if (src == null) return '';
+    const cap = credit ? `<div class="imgcredit">${SV.esc(credit)}</div>` : '';
+    return (src ? `<img class="${cls}" src="${SV.esc(src)}" alt="" />` : `<div class="${cls} imgwait">Фото загружается…</div>`) + cap;
+  };
+  SV.specialTitle = (sp) => (sp ? (sp.type === 'cat' ? '🐱 Кот в мешке' : '🔨 Аукцион') : '');
+
   SV.statusText = (s) =>
     s === 'ok' ? 'связь есть' : s === 'nokey' ? 'не указан ключ Supabase (config.js)' : s === 'bad' ? 'нет связи, переподключаюсь…' : 'подключаюсь…';
 })();

@@ -39,6 +39,8 @@
   #view .lbl { font-size: 13px; color: var(--muted); text-transform: uppercase; margin-top: 8px; }
   #view .ord { font-size: 15px; color: var(--muted); }
   #view .big { font-size: 24px; font-weight: 700; }
+  #view .qimg { display: block; margin: 6px auto; max-width: 100%; max-height: 32vh; border-radius: 10px; }
+  #view .sp-title { font-size: 30px; margin: 4px 0; }
   .wrap { flex: 0 0 auto; height: 36vh; min-height: 150px; display: flex; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); }
   #btn {
     flex: 1; border-radius: 28px; font-size: 11vw; font-weight: 900; line-height: 1.1;
@@ -170,6 +172,7 @@ function onMsg(m) {
     askName(true);
     return;
   }
+  if (m.t === 'img') { SV.imgCache[m.key] = m.data; if (st && mePlayer) render(); return; }
   if (m.t !== 'state' || m.room !== room) return;
   lastAt = Date.now();
   const prev = st;
@@ -240,8 +243,16 @@ function renderView() {
     h += '</div>';
     h += st.chooser === me.id ? '<p class="big gold-text">Вы выбираете вопрос!<br><span style="font-size:16px">Назовите вслух тему и цену</span></p>'
       : st.chooser ? `<p>Выбирает: <b class="gold-text">${esc(nameOf(st.chooser))}</b></p>` : '<p class="muted">Ведущий выбирает вопрос</p>';
+  } else if (ph === 'cat') {
+    h = `<div class="mid"><div class="sp-title">🐱 Кот в мешке!</div><div class="qh">Тема: ${esc(cur.theme)} · ${cur.value}</div>
+      <p>${st.chooser === me.id ? '<b class="gold-text">Вы отдаёте этот вопрос другому игроку — скажите ведущему кому.</b>' : st.chooser ? esc(nameOf(st.chooser)) + ' отдаёт вопрос другому игроку' : 'Ведущий отдаёт вопрос'}</p></div>`;
+  } else if (ph === 'auction') {
+    h = `<div class="mid"><div class="sp-title">🔨 Аукцион!</div><div class="qh">${esc(cur.theme)} · номинал ${cur.value}</div>
+      <p>Торгуйтесь вслух! Ставка — не меньше ${cur.value}, или ва-банк (весь ваш счёт).</p></div>`;
   } else if (cur) {
-    h = `<div class="mid"><div class="qh">${esc(cur.theme)} · ${cur.value}</div><div class="qt">${esc(cur.text)}</div>`;
+    const sp = cur.special;
+    h = `<div class="mid">${sp ? '<div class="sp-title" style="font-size:18px">' + SV.specialTitle(sp) + '</div>' : ''}<div class="qh">${esc(cur.theme)} · ${sp ? 'ставка ' + sp.bet : cur.value}</div><div class="qt">${esc(cur.text)}</div>${SV.imgHtml(cur.img, conn, 'qimg', cur.imgCredit)}`;
+    if (ph === 'special') h += `<div class="lbl">Отвечает</div><div class="who">${esc(nameOf(sp.to))}</div>`;
     if (ph === 'answering') {
       const rest = st.buzz.slice(1);
       h += `<div class="lbl">Отвечает</div><div class="who">${esc(nameOf(st.buzz[0].id))}</div>` +
@@ -289,6 +300,9 @@ function render() {
       return setBtn('', 'Отвечает другой', pos > 0 ? 'Вы нажали ' + (pos + 1) + '-м' : '');
     }
     case 'timeout': return setBtn('', 'Время вышло', '');
+    case 'cat': return setBtn('', 'Кот в мешке', st.chooser === me.id ? 'Скажите ведущему, кому отдаёте' : 'Ждём, кому достанется');
+    case 'auction': return setBtn('', 'Аукцион', 'Торгуйтесь вслух');
+    case 'special': return st.cur.special.to === me.id ? setBtn('gold', 'Ваш вопрос!', 'Отвечайте вслух') : setBtn('', 'Отвечает другой', 'Кнопки сейчас не нужны');
     case 'reveal': return setBtn('', st.correct === me.id ? 'Верно!' : 'Вопрос закрыт', st.correct === me.id ? 'Вы выбираете следующий' : '');
   }
   setBtn('', '…', '');
