@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a1446" />
+<meta name="robots" content="noindex" />
+<title>Своя игра — игрок</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; font-size: 18px; user-select: none; -webkit-user-select: none; }
+  .form { margin: auto; width: 100%; max-width: 420px; padding: 24px 18px; text-align: center; }
+  .form h1 { color: var(--gold); font-size: 34px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form input { font-size: 24px; text-align: center; margin: 14px 0; user-select: text; -webkit-user-select: text; }
+  .form button { width: 100%; font-size: 24px; padding: 16px; }
+  .top { display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; background: #06103a; }
+  .top .nm { flex: 1; font-weight: 700; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top .sc { color: var(--gold); font-weight: 800; font-size: 30px; }
+  .info { text-align: center; padding: 8px 12px; min-height: 44px; font-size: 20px; }
+  .wrap { flex: 1; display: flex; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); min-height: 0; }
+  #btn {
+    flex: 1; border-radius: 28px; font-size: 13vw; font-weight: 900; line-height: 1.1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    background: var(--grey); color: #cfd5ea; border: 6px solid rgba(255,255,255,0.15);
+    touch-action: manipulation; padding: 10px; text-transform: uppercase;
+    transition: background 0.08s, transform 0.05s;
+  }
+  #btn:hover { background: var(--grey); }
+  #btn small { font-size: 5.5vw; font-weight: 700; text-transform: none; }
+  #btn.green { background: var(--green); color: #fff; border-color: #8dffb9; box-shadow: 0 0 40px rgba(31,191,91,0.6); }
+  #btn.green:active { transform: scale(0.97); }
+  #btn.red { background: var(--red); color: #fff; }
+  #btn.gold { background: var(--gold); color: #1b1b1b; border-color: #fff; }
+  #btn.wait { background: #3d5ad8; color: #fff; }
+  @media (min-width: 700px) { #btn { font-size: 80px; } #btn small { font-size: 30px; } }
+  .timerbar { margin: 0 12px 8px; }
+  .final { flex: 1; overflow: auto; padding: 8px 16px 20px; text-align: center; user-select: text; -webkit-user-select: text; }
+  .final h2 { color: var(--gold); margin: 10px 0; font-size: 28px; }
+  .final .q { font-size: 24px; line-height: 1.3; margin: 10px 0 16px; }
+  .final input, .final textarea { font-size: 24px; text-align: center; margin-bottom: 10px; }
+  .final textarea { min-height: 90px; }
+  .final button { width: 100%; font-size: 22px; padding: 16px; margin-top: 6px; }
+  .note { color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div id="vCode" class="form hidden">
+    <h1>Своя игра</h1>
+    <p>Введите код комнаты — он на экране:</p>
+    <input id="inCode" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off" />
+    <button class="gold" id="goCode">Дальше</button>
+  </div>
+
+  <div id="vName" class="form hidden">
+    <h1>Своя игра</h1>
+    <p id="kickedMsg" class="hidden" style="color:#ffb3b0">Ведущий удалил вас из игры. Можно войти заново.</p>
+    <p>Комната <b class="gold-text" id="nameRoom"></b>. Как вас зовут?</p>
+    <input id="inName" maxlength="24" placeholder="Ваше имя" autocomplete="off" />
+    <button class="gold" id="goName">Играть</button>
+  </div>
+
+  <div id="vGame" class="hidden" style="display:flex;flex-direction:column;height:100%">
+    <div class="top"><span class="dot" id="dot"></span><span class="nm" id="myName"></span><span class="sc" id="myScore">0</span></div>
+    <div class="info" id="info"></div>
+    <div class="timerbar hidden" id="tbar"><div id="tfill"></div></div>
+    <div class="wrap" id="btnWrap"><button id="btn">…</button></div>
+    <div class="final hidden" id="final"></div>
+  </div>
+
+<script src="lib/supabase.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+'use strict';
+const { $, esc, store } = SV;
+// в тестовом режиме можно открыть несколько игроков в одном браузере: play.html?room=…&local=1&slot=2
+const ME_KEY = 'svoya_player' + (SV.local ? '_local' + (SV.params.get('slot') || '') : '');
+let room = SV.roomFromUrl();
+let me = store.get(ME_KEY, null); // {room, id, name}
+let conn = null, st = null, mePlayer = null;
+let falseUntil = 0, pressedRound = -1, timerEnd = 0, finalKey = '', myBet = null;
+let helloTimer = null;
+
+function show(v) { ['#vCode', '#vName', '#vGame'].forEach((s) => $(s).classList.toggle('hidden', s !== v)); }
+
+// ----- вход -----
+if (!room) {
+  show('#vCode');
+  $('#goCode').onclick = () => {
+    const c = $('#inCode').value.replace(/\D/g, '');
+    if (c.length !== 4) return;
+    location.href = SV.pageUrl('play.html', c);
+  };
+} else if (me && me.room === room && me.id && me.name) {
+  start();
+} else {
+  askName();
+}
+function askName(kicked) {
+  show('#vName');
+  $('#nameRoom').textContent = room;
+  $('#kickedMsg').classList.toggle('hidden', !kicked);
+  if (me && me.name) $('#inName').value = me.name;
+  const go = () => {
+    const name = $('#inName').value.trim().replace(/\s+/g, ' ').slice(0, 24);
+    if (!name) { $('#inName').focus(); return; }
+    me = { room, id: kicked || !me || me.room !== room ? SV.uid() : me.id, name };
+    store.set(ME_KEY, me);
+    if (kicked) { location.reload(); return; }
+    start();
+  };
+  $('#goName').onclick = go;
+  $('#inName').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+}
+
+function hello() { if (conn) { conn.send({ t: 'hello', id: me.id, name: me.name }); } }
+
+function start() {
+  show('#vGame');
+  $('#vGame').style.display = 'flex';
+  $('#myName').textContent = me.name;
+  render();
+  conn = SV.connect(room, {
+    key: me.id,
+    meta: { role: 'player', pid: me.id },
+    onMsg,
+    onStatus(s) {
+      $('#dot').classList.toggle('on', s === 'ok');
+      if (s === 'ok') hello();
+      else if (s !== 'ok') $('#info').textContent = SV.statusText(s);
+    },
+  });
+  // пока ведущий нас не увидел — повторяем «привет»
+  helloTimer = setInterval(() => { if (!mePlayer) hello(); }, 2000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) hello(); });
+}
+
+function onMsg(m) {
+  if (!m) return;
+  if (m.t === 'kicked' && m.id === me.id) {
+    store.set(ME_KEY, { room, name: me.name });
+    conn = null; clearInterval(helloTimer);
+    askName(true);
+    return;
+  }
+  if (m.t !== 'state' || m.room !== room) return;
+  const prev = st;
+  st = m;
+  const wasMe = mePlayer;
+  mePlayer = st.players.find((p) => p.id === me.id) || null;
+  if (!mePlayer && wasMe) hello();
+  if (st.phase === 'open' && st.timerLeft != null) timerEnd = Date.now() + st.timerLeft;
+  // вибрация, если ответить выпало мне
+  if (st.phase === 'answering' && st.buzz[0] && st.buzz[0].id === me.id && !(prev && prev.phase === 'answering' && prev.round === st.round)) {
+    if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+  }
+  render();
+}
+
+// ----- главная кнопка -----
+function press(e) {
+  if (e) e.preventDefault();
+  if (!st || !mePlayer) return;
+  const now = Date.now();
+  if (now < falseUntil) return;
+  if (st.phase === 'question') {
+    // фальстарт: нажал до «Принимаю ответы»
+    falseUntil = now + SV.FALSE_START_MS;
+    if (navigator.vibrate) navigator.vibrate(300);
+    render();
+    setTimeout(render, SV.FALSE_START_MS + 20);
+    return;
+  }
+  if (st.phase === 'open' && !st.wrong.includes(me.id) && pressedRound !== st.round) {
+    pressedRound = st.round;
+    conn.send({ t: 'buzz', id: me.id, round: st.round });
+    if (navigator.vibrate) navigator.vibrate(30);
+    render();
+  }
+}
+$('#btn').addEventListener('pointerdown', press);
+$('#btn').addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('keydown', (e) => { if (e.code === 'Space' && !/INPUT|TEXTAREA/.test(e.target.tagName)) press(e); });
+
+function nameOf(id) { const p = st && st.players.find((x) => x.id === id); return p ? p.name : '?'; }
+
+function setBtn(cls, big, small) {
+  const b = $('#btn');
+  b.className = cls;
+  b.innerHTML = esc(big) + (small ? '<small>' + esc(small) + '</small>' : '');
+}
+
+function render() {
+  if (!st || !mePlayer) {
+    $('#myScore').textContent = '0';
+    $('#info').textContent = st ? 'Входим в игру…' : 'Ищем игру… Ведущий должен открыть пульт.';
+    setBtn('', 'Ждите', '');
+    showFinal(false);
+    return;
+  }
+  $('#myName').textContent = mePlayer.name;
+  $('#myScore').textContent = SV.money(mePlayer.score);
+  const ph = st.phase, now = Date.now();
+  $('#tbar').classList.toggle('hidden', ph !== 'open');
+  if (ph.startsWith('final')) { renderFinal(); return; }
+  showFinal(false);
+  const cur = st.cur;
+  $('#info').innerHTML = cur ? esc(cur.theme) + ' · <b class="gold-text">' + cur.value + '</b>'
+    : st.chooser === me.id ? '<b class="gold-text">Вы выбираете вопрос!</b>'
+    : st.chooser ? 'Выбирает: ' + esc(nameOf(st.chooser)) : '';
+
+  if (now < falseUntil) return setBtn('red', 'Фальстарт!', 'Рано нажали — подождите секунду');
+  switch (ph) {
+    case 'lobby': return setBtn('', 'Ждём начала', 'Вы в игре! Смотрите на экран');
+    case 'board': return setBtn('', 'Ждём вопрос', st.chooser === me.id ? 'Назовите тему и цену' : '');
+    case 'question': return setBtn('', 'Слушайте вопрос', 'Нажимать — после сигнала ведущего');
+    case 'open':
+      if (st.wrong.includes(me.id)) return setBtn('', 'Вы уже отвечали', 'На этот вопрос — всё');
+      if (pressedRound === st.round) return setBtn('wait', 'Нажато!', 'Ждём…');
+      return setBtn('green', 'Отвечаю!', '');
+    case 'answering': {
+      const pos = st.buzz.findIndex((b) => b.id === me.id);
+      if (pos === 0) return setBtn('gold', 'Вы первый!', 'Отвечайте!');
+      return setBtn('', 'Отвечает', nameOf(st.buzz[0].id) + (pos > 0 ? ' · вы нажали ' + (pos + 1) + '-м' : ''));
+    }
+    case 'timeout': return setBtn('', 'Время вышло', '');
+    case 'reveal': return setBtn('', 'Ответ на экране', st.chooser === me.id && st.buzz[0] && st.buzz[0].id === me.id ? 'Верно! Вы выбираете следующий' : '');
+  }
+  setBtn('', '…', '');
+}
+
+// таймер на кнопке
+setInterval(() => {
+  if (!st || st.phase !== 'open') return;
+  $('#tfill').style.width = Math.max(0, ((timerEnd - Date.now()) / SV.BUZZ_MS) * 100) + '%';
+}, 150);
+
+// ----- финал -----
+function showFinal(on) {
+  $('#final').classList.toggle('hidden', !on);
+  $('#btnWrap').classList.toggle('hidden', on);
+  if (!on) finalKey = '';
+}
+function renderFinal() {
+  showFinal(true);
+  const F = st.final, ph = st.phase;
+  const inFinal = F.eligible.includes(me.id);
+  const betDone = F.betDone.includes(me.id), ansDone = F.ansDone.includes(me.id);
+  $('#info').innerHTML = '<b class="gold-text">ФИНАЛ</b>';
+  // перерисовываем только при смене этапа, чтобы не стирать то, что игрок печатает
+  const key = [ph, inFinal, betDone, ansDone, mePlayer.score].join('|');
+  if (key === finalKey) return;
+  finalKey = key;
+  const el = $('#final');
+  if (!inFinal) {
+    el.innerHTML = ph === 'final_results' ? resultsHtml() : `<h2>Финал</h2><p class="q">В финале играют участники с плюсом на счету.</p><p class="note">Смотрите на экран и болейте!</p>`;
+    return;
+  }
+  if (ph === 'final_bets') {
+    const max = Math.max(1, mePlayer.score);
+    el.innerHTML = `<h2>Тема: ${esc(F.theme)}</h2>
+      <p>Ваш счёт: <b class="gold-text">${SV.money(mePlayer.score)}</b>.<br>Ставка — от 1 до ${max}.</p>
+      ${betDone ? '<p class="gold-text" style="font-size:22px">Ставка принята' + (myBet != null ? ': ' + myBet : '') + '. Можно изменить, пока ведущий не показал вопрос.</p>' : ''}
+      <input id="inBet" type="number" inputmode="numeric" min="1" max="${max}" placeholder="Ставка" value="${myBet != null ? myBet : ''}" />
+      <button class="gold" id="sendBet">${betDone ? 'Изменить ставку' : 'Сделать ставку'}</button>
+      <button id="allIn">Ва-банк (${max})</button>`;
+    const send = (v) => {
+      v = Math.round(Number(v));
+      if (!(v >= 1 && v <= max)) { alert('Ставка должна быть от 1 до ' + max); return; }
+      myBet = v; finalKey = '';
+      conn.send({ t: 'bet', id: me.id, amount: v });
+    };
+    $('#sendBet').onclick = () => send($('#inBet').value);
+    $('#allIn').onclick = () => send(max);
+  } else if (ph === 'final_question') {
+    el.innerHTML = `<h2>${esc(F.theme)}</h2><p class="q">${esc(F.text)}</p>
+      ${ansDone ? '<p class="gold-text">Ответ отправлен. Можно исправить, пока ведущий не закрыл приём.</p>' : ''}
+      <textarea id="inAns" maxlength="200" placeholder="Ваш ответ"></textarea>
+      <button class="gold" id="sendAns">${ansDone ? 'Исправить ответ' : 'Отправить ответ'}</button>`;
+    const saved = store.get('svoya_fans_' + room + '_' + me.id, '');
+    $('#inAns').value = saved;
+    $('#sendAns').onclick = () => {
+      const t = $('#inAns').value.trim();
+      if (!t) return;
+      store.set('svoya_fans_' + room + '_' + me.id, t);
+      finalKey = '';
+      conn.send({ t: 'fans', id: me.id, text: t });
+    };
+  } else if (ph === 'final_judge') {
+    el.innerHTML = `<h2>Ответы приняты</h2><p class="q">Ведущий проверяет ответы…</p>`;
+  } else {
+    el.innerHTML = resultsHtml();
+  }
+}
+function resultsHtml() {
+  const F = st.final;
+  const r = (F.results || []).find((x) => x.id === me.id);
+  const sorted = [...st.players].sort((a, b) => b.score - a.score);
+  const place = sorted.findIndex((p) => p.id === me.id) + 1;
+  return `<h2>Итоги</h2>
+    <p class="q">Правильный ответ: <b class="gold-text">${esc(F.answer || '')}</b></p>
+    ${r ? `<p style="font-size:26px;color:${r.ok ? '#8dffb9' : '#ffb3b0'}">${r.ok ? 'Верно! +' + r.bet : 'Неверно −' + r.bet}</p>` : ''}
+    <p style="font-size:24px">Ваш счёт: <b class="gold-text">${SV.money(mePlayer.score)}</b><br>Место: <b>${place}</b> из ${sorted.length}</p>`;
+}
+</script>
+</body>
+</html>

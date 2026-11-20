@@ -1,0 +1,98 @@
+:root {
+  --bg: #0a1446;
+  --bg2: #10206e;
+  --cell: #1a33a8;
+  --cell-hi: #2545d6;
+  --line: #000a2e;
+  --gold: #f6c945;
+  --gold2: #ffdf7a;
+  --text: #ffffff;
+  --muted: #9fb0e8;
+  --green: #1fbf5b;
+  --red: #e0413b;
+  --grey: #4b5578;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: radial-gradient(ellipse at top, #1a2f8f 0%, var(--bg) 60%);
+  background-color: var(--bg);
+  background-attachment: fixed;
+  min-height: 100%;
+  color: var(--text);
+  font-family: 'Arial Narrow', 'Roboto Condensed', Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, textarea, select { font: inherit; }
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: var(--cell);
+  color: #fff;
+  font-weight: 700;
+}
+button:hover { background: var(--cell-hi); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.gold { background: var(--gold); color: #1b1b1b; }
+button.green { background: var(--green); }
+button.red { background: var(--red); }
+button.ghost { background: transparent; border: 2px solid var(--muted); color: var(--muted); }
+input, textarea {
+  background: #fff;
+  color: #111;
+  border: 2px solid var(--muted);
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 100%;
+}
+.gold-text { color: var(--gold); }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+.qr svg { width: 100%; height: auto; display: block; background: #fff; border-radius: 8px; }
+
+/* Табло */
+.board {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.8fr) repeat(5, 1fr);
+  gap: 4px;
+  background: var(--line);
+  padding: 4px;
+  border-radius: 8px;
+}
+.board .theme, .board .cell {
+  background: var(--cell);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 6px;
+  min-height: 56px;
+  border-radius: 3px;
+}
+.board .theme { text-transform: uppercase; font-weight: 700; letter-spacing: 0.02em; justify-content: flex-start; text-align: left; }
+.board .cell { color: var(--gold); font-weight: 800; font-size: 1.5em; text-shadow: 0 2px 0 #000; }
+.board .cell.played { color: transparent; text-shadow: none; background: #0e1d63; }
+.board .cell.current { background: var(--gold); color: #1b1b1b; text-shadow: none; }
+button.cell { border-radius: 3px; }
+
+/* Список игроков */
+.scores { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.score-card {
+  background: var(--bg2);
+  border: 2px solid #2b3fa0;
+  border-radius: 10px;
+  padding: 6px 14px;
+  text-align: center;
+  min-width: 110px;
+}
+.score-card .n { font-weight: 700; }
+.score-card .s { color: var(--gold); font-weight: 800; font-size: 1.4em; }
+.score-card.off { opacity: 0.45; }
+.score-card.first { border-color: var(--gold); box-shadow: 0 0 18px var(--gold); }
+.score-card.wrong { border-color: var(--red); }
+.timerbar { height: 12px; background: #000a2e; border-radius: 6px; overflow: hidden; }
+.timerbar > div { height: 100%; background: var(--green); width: 100%; transition: width 0.2s linear; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--grey); margin-right: 6px; }
+.dot.on { background: var(--green); }

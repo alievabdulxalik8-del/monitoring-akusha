@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Своя игра</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 20px; font-size: 20px; }
+  .box { max-width: 460px; width: 100%; text-align: center; }
+  h1 { color: var(--gold); font-size: 44px; text-transform: uppercase; text-shadow: 0 3px 0 #000; margin: 0 0 20px; }
+  a.btn { display: block; margin: 12px 0; padding: 18px; border-radius: 14px; background: var(--cell); color: #fff; text-decoration: none; font-weight: 700; font-size: 22px; }
+  a.btn.gold { background: var(--gold); color: #1b1b1b; }
+  a.btn small { display: block; font-weight: 400; font-size: 15px; opacity: 0.8; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>Своя игра</h1>
+    <a class="btn gold" href="host.html">Пульт ведущего<small>ноутбук или телефон ведущего</small></a>
+    <a class="btn" href="screen.html">Экран для проектора<small>понадобится код комнаты с пульта</small></a>
+    <a class="btn" href="play.html">Я игрок<small>лучше сканировать QR-код на экране</small></a>
+  </div>
+</body>
+</html>

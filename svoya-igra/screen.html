@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Своя игра — экран</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; font-size: 2.2vh; }
+  .top { display: flex; align-items: center; gap: 2vw; padding: 1.2vh 2vw; }
+  .top .title { font-size: 4vh; font-weight: 900; color: var(--gold); letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 3px 0 #000; }
+  .top .grow { flex: 1; }
+  .top .join { text-align: right; font-size: 2.2vh; }
+  .top .join b { color: var(--gold); font-size: 3.4vh; letter-spacing: 0.1em; }
+  .top .mini { width: 11vh; }
+  .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 2.5vw; }
+  .bottom { padding: 1.2vh 2vw 1.8vh; }
+  .board { height: 100%; grid-template-rows: repeat(5, 1fr); font-size: 3.4vh; }
+  .board .cell { font-size: 6vh; }
+  .board .theme { font-size: 2.8vh; }
+  .scores .score-card { font-size: 2.6vh; min-width: 12vw; }
+  .scores .score-card .s { font-size: 4vh; }
+  .qhead { text-align: center; font-size: 4vh; color: var(--gold); font-weight: 800; text-transform: uppercase; margin-bottom: 2vh; }
+  .qtext { text-align: center; font-size: 6.2vh; line-height: 1.25; font-weight: 700; max-width: 90vw; margin: 0 auto; }
+  .answer { text-align: center; margin-top: 3vh; font-size: 5vh; }
+  .answer b { color: var(--gold); }
+  .buzz { text-align: center; margin-top: 3vh; }
+  .buzz .who { font-size: 10vh; font-weight: 900; color: var(--gold); text-shadow: 0 4px 0 #000; animation: pop 0.25s ease-out; }
+  .buzz .lbl { font-size: 3.4vh; color: var(--muted); text-transform: uppercase; }
+  .buzz .order { font-size: 3.4vh; color: var(--muted); margin-top: 1vh; }
+  .state { text-align: center; font-size: 5vh; margin-top: 3vh; color: var(--muted); }
+  .timerbar { height: 2vh; margin: 3vh auto 0; max-width: 70vw; border-radius: 1vh; }
+  @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .lobby { display: grid; grid-template-columns: 42vh 1fr; gap: 4vw; align-items: center; }
+  .lobby .qr { width: 42vh; }
+  .lobby h2 { font-size: 6vh; margin: 0 0 2vh; color: var(--gold); }
+  .lobby .url { font-size: 3vh; color: var(--gold2); word-break: break-all; }
+  .lobby .code { font-size: 4vh; margin: 2vh 0; }
+  .lobby .code b { color: var(--gold); font-size: 8vh; letter-spacing: 0.15em; }
+  .names { display: flex; flex-wrap: wrap; gap: 1vh; margin-top: 2vh; }
+  .names span { background: var(--bg2); border: 2px solid #2b3fa0; border-radius: 1vh; padding: 0.6vh 1.4vw; font-size: 3vh; }
+  table.res { margin: 2vh auto 0; border-collapse: collapse; font-size: 3.6vh; }
+  table.res td, table.res th { padding: 1vh 2vw; border-bottom: 2px solid #2b3fa0; text-align: left; }
+  .ok { color: #8dffb9; } .bad { color: #ffb3b0; }
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 10; cursor: pointer; text-align: center; font-size: 4vh; }
+  #overlay b { color: var(--gold); }
+  #noconn { position: fixed; bottom: 1vh; left: 1vw; font-size: 2vh; color: #ffb3b0; }
+  #ask { margin: auto; text-align: center; font-size: 4vh; }
+  #ask input { width: 30vh; font-size: 5vh; text-align: center; margin: 2vh 0; }
+</style>
+</head>
+<body>
+  <div id="ask" class="hidden">
+    <div class="gold-text" style="font-size:6vh;font-weight:900">СВОЯ ИГРА</div>
+    <p>Экран для проектора. Введите код комнаты с пульта ведущего:</p>
+    <input id="inCode" inputmode="numeric" maxlength="4" /><br />
+    <button class="gold" id="goCode" style="font-size:3vh">Открыть</button>
+  </div>
+  <div class="top hidden" id="top">
+    <div class="title">Своя игра</div>
+    <div class="grow"></div>
+    <div class="join" id="joinInfo"></div>
+    <div class="qr mini" id="miniQr"></div>
+  </div>
+  <div class="stage hidden" id="stage"></div>
+  <div class="bottom hidden" id="bottom"><div class="scores" id="scores"></div></div>
+  <div id="overlay" class="hidden"><div>Нажмите в любом месте,<br>чтобы включить <b>звук</b> и <b>полный экран</b></div></div>
+  <div id="noconn" class="hidden">Нет связи с пультом ведущего…</div>
+
+<script src="lib/qrcode.js"></script>
+<script src="lib/supabase.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+'use strict';
+const { $, esc, VALUES } = SV;
+const room = SV.roomFromUrl();
+let st = null, lastAt = 0, timerEnd = 0, conn = null;
+
+if (!room) {
+  $('#ask').classList.remove('hidden');
+  $('#goCode').onclick = () => {
+    const c = $('#inCode').value.replace(/\D/g, '');
+    if (c.length === 4) location.href = SV.pageUrl('screen.html', c);
+  };
+} else {
+  ['#top', '#stage', '#bottom', '#overlay'].forEach((s) => $(s).classList.remove('hidden'));
+  const url = SV.pageUrl('play.html', room);
+  $('#miniQr').innerHTML = SV.qrSvg(url);
+  $('#joinInfo').innerHTML = 'Код комнаты<br><b>' + room + '</b>';
+  $('#stage').innerHTML = '<div class="state">Ждём пульт ведущего…</div>';
+  $('#overlay').onclick = () => {
+    SV.unlockAudio();
+    const d = document.documentElement;
+    if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
+    $('#overlay').classList.add('hidden');
+  };
+  conn = SV.connect(room, {
+    key: 'screen-' + SV.uid(),
+    meta: { role: 'screen' },
+    onMsg,
+    onStatus(s) { if (s === 'ok') conn.send({ t: 'hi' }); },
+  });
+  setInterval(() => $('#noconn').classList.toggle('hidden', Date.now() - lastAt < 12000), 1000);
+  setInterval(() => {
+    const f = $('#tfill');
+    if (f && st && st.phase === 'open') f.style.width = Math.max(0, ((timerEnd - Date.now()) / SV.BUZZ_MS) * 100) + '%';
+  }, 150);
+}
+
+function onMsg(m) {
+  if (!m || m.t !== 'state' || m.room !== room) return;
+  lastAt = Date.now();
+  const prev = st;
+  st = m;
+  if (st.phase === 'open' && st.timerLeft != null) timerEnd = Date.now() + st.timerLeft;
+  // звуки
+  if (prev) {
+    if (st.phase === 'answering' && (prev.phase !== 'answering' || prev.round !== st.round)) SV.beep('buzz');
+    if (st.wrong.length > prev.wrong.length) SV.beep('bad');
+    if (st.phase === 'reveal' && prev.phase === 'answering') SV.beep('good');
+  }
+  // перерисовываем только если что-то изменилось (повторы раз в 4 с не мигают)
+  const sig = JSON.stringify({ ...st, timerLeft: null });
+  if (prev && sig === JSON.stringify({ ...prev, timerLeft: null })) return;
+  render();
+}
+
+function nameOf(id) { const p = st.players.find((x) => x.id === id); return p ? p.name : '?'; }
+
+function render() {
+  const ph = st.phase;
+  const lobby = ph === 'lobby';
+  $('#top').style.visibility = lobby ? 'hidden' : 'visible';
+  $('#bottom').classList.toggle('hidden', lobby);
+  const first = st.buzz[0] && st.buzz[0].id;
+  $('#scores').innerHTML = st.players.map((p) => `<div class="score-card ${p.online ? '' : 'off'} ${p.id === first && ph === 'answering' ? 'first' : ''} ${st.wrong.includes(p.id) ? 'wrong' : ''}">
+      <div class="n">${esc(p.name)}</div><div class="s">${SV.money(p.score)}</div></div>`).join('');
+  const el = $('#stage');
+  const cur = st.cur;
+  const head = cur ? `<div class="qhead">${esc(cur.theme)} · ${cur.value}</div><div class="qtext">${esc(cur.text)}</div>` : '';
+  const ans = cur && cur.answer != null ? `<div class="answer">Ответ: <b>${esc(cur.answer)}</b></div>` : '';
+  let h = '';
+  switch (ph) {
+    case 'lobby': {
+      const url = SV.pageUrl('play.html', room);
+      h = `<div class="lobby"><div class="qr">${SV.qrSvg(url)}</div><div>
+        <div class="gold-text" style="font-size:8vh;font-weight:900;text-shadow:0 4px 0 #000">СВОЯ ИГРА</div>
+        <h2>Наведите камеру телефона на QR-код</h2>
+        <div class="url">${esc(url)}</div>
+        <div class="code">Код комнаты: <b>${room}</b></div>
+        <div class="muted" style="font-size:3vh">Игроки (${st.players.length}):</div>
+        <div class="names">${st.players.map((p) => '<span>' + esc(p.name) + '</span>').join('')}</div></div></div>`;
+      break;
+    }
+    case 'board': {
+      h = '<div class="board">';
+      st.themes.forEach((t, ti) => {
+        h += `<div class="theme">${esc(t)}</div>`;
+        VALUES.forEach((v, i) => (h += `<div class="cell ${st.played[ti][i] ? 'played' : ''}">${v}</div>`));
+      });
+      h += '</div>';
+      if (st.chooser) h += `<div class="state" style="margin-top:1.5vh;font-size:3.6vh">Выбирает: <b class="gold-text">${esc(nameOf(st.chooser))}</b></div>`;
+      el.style.justifyContent = 'stretch';
+      el.innerHTML = h;
+      return;
+    }
+    case 'question':
+      h = head + ans;
+      break;
+    case 'open':
+      h = head + `<div class="timerbar"><div id="tfill"></div></div>` + ans;
+      break;
+    case 'answering': {
+      const rest = st.buzz.slice(1);
+      h = head + `<div class="buzz"><div class="lbl">Отвечает</div><div class="who">${esc(nameOf(first))}</div>
+        ${rest.length ? '<div class="order">' + rest.map((b, k) => (k + 2) + '. ' + esc(nameOf(b.id))).join(' · ') + '</div>' : ''}</div>` + ans;
+      break;
+    }
+    case 'timeout':
+      h = head + `<div class="state">Время вышло</div>` + ans;
+      break;
+    case 'reveal': {
+      const ok = st.chooser && st.buzz[0] && st.buzz[0].id === st.chooser;
+      h = head + ans + (ok ? `<div class="state">Верно ответил(а): <b class="gold-text">${esc(nameOf(st.chooser))}</b></div>` : '');
+      break;
+    }
+    case 'final_bets': {
+      const F = st.final;
+      h = `<div class="qhead" style="font-size:8vh">Финал</div><div class="qtext">Тема: <span class="gold-text">${esc(F.theme)}</span></div>
+        <div class="state">Участники делают ставки на телефонах</div>
+        <div class="names" style="justify-content:center">${F.eligible.map((id) => '<span>' + (F.betDone.includes(id) ? '✓ ' : '… ') + esc(nameOf(id)) + '</span>').join('')}</div>`;
+      break;
+    }
+    case 'final_question':
+    case 'final_judge': {
+      const F = st.final;
+      h = `<div class="qhead">Финал · ${esc(F.theme)}</div><div class="qtext">${esc(F.text)}</div>
+        <div class="state">${ph === 'final_judge' ? 'Ведущий проверяет ответы…' : 'Пишем ответы на телефонах'}</div>
+        <div class="names" style="justify-content:center">${F.eligible.map((id) => '<span>' + (F.ansDone.includes(id) ? '✓ ' : '… ') + esc(nameOf(id)) + '</span>').join('')}</div>`;
+      break;
+    }
+    case 'final_results': {
+      const F = st.final;
+      const top = [...st.players].sort((a, b) => b.score - a.score);
+      h = `<div class="qhead">Финал · ответ: <span style="color:#fff">${esc(F.answer)}</span></div>
+        <table class="res"><tr><th>Игрок</th><th>Ответ</th><th>Ставка</th></tr>
+        ${F.results.map((r) => `<tr><td>${esc(nameOf(r.id))}</td><td class="${r.ok ? 'ok' : 'bad'}">${esc(r.answer) || '—'}</td><td class="${r.ok ? 'ok' : 'bad'}">${r.ok ? '+' : '−'}${r.bet}</td></tr>`).join('')}</table>
+        ${top[0] ? `<div class="buzz"><div class="lbl">Победитель</div><div class="who">${esc(top[0].name)}</div></div>` : ''}`;
+      break;
+    }
+  }
+  el.style.justifyContent = 'center';
+  el.innerHTML = h;
+}
+</script>
+</body>
+</html>

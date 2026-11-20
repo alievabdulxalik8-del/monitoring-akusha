@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Своя игра — пульт ведущего</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  body { font-size: 17px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px; background: #06103a; position: sticky; top: 0; z-index: 5; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .room { font-size: 20px; font-weight: 800; color: var(--gold); letter-spacing: 0.1em; }
+  header .grow { flex: 1; }
+  header .status { font-size: 14px; }
+  nav { display: flex; gap: 6px; }
+  nav button.on { background: var(--gold); color: #1b1b1b; }
+  main { padding: 12px; max-width: 1300px; margin: 0 auto; }
+  .layout { display: grid; grid-template-columns: 1fr 330px; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--bg2); border: 2px solid #2b3fa0; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 10px; font-size: 18px; color: var(--muted); font-weight: 600; }
+  .qtitle { color: var(--gold); font-weight: 800; font-size: 20px; }
+  .qtext { font-size: 24px; line-height: 1.3; margin: 8px 0 12px; }
+  .answer { background: #0b5d2a; border: 2px solid var(--green); border-radius: 10px; padding: 10px 12px; font-size: 20px; margin-bottom: 12px; }
+  .answer b { color: #b9ffcf; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .row button { padding: 14px 18px; font-size: 18px; }
+  .big { font-size: 22px !important; padding: 18px 22px !important; flex: 1 1 auto; }
+  .buzzer { font-size: 34px; font-weight: 800; color: var(--gold); margin: 6px 0; }
+  .order { color: var(--muted); font-size: 17px; }
+  .players .p { display: flex; align-items: center; gap: 6px; padding: 8px 0; border-bottom: 1px solid #2b3fa0; }
+  .players .p .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .players .p .sc { color: var(--gold); font-weight: 800; min-width: 64px; text-align: right; }
+  .players .p button { padding: 6px 9px; font-size: 14px; }
+  .players .p.first { background: rgba(246, 201, 69, 0.15); }
+  .players .p.wrong .nm { text-decoration: line-through; color: var(--red); }
+  .qrbox { display: grid; grid-template-columns: 180px 1fr; gap: 14px; align-items: center; }
+  @media (max-width: 520px) { .qrbox { grid-template-columns: 1fr; } .qrbox .qr { max-width: 220px; } }
+  .link { word-break: break-all; font-size: 15px; color: var(--gold2); }
+  .board .cell { font-size: 1.25em; min-height: 48px; }
+  .board .theme { font-size: 0.8em; min-height: 48px; }
+  @media (max-width: 600px) { .board { grid-template-columns: 1fr repeat(5, 1fr); } .board .theme { font-size: 0.62em; padding: 3px; } .board .cell { font-size: 0.95em; padding: 2px; } }
+  table.final { width: 100%; border-collapse: collapse; }
+  table.final td, table.final th { border-bottom: 1px solid #2b3fa0; padding: 8px 6px; text-align: left; vertical-align: top; }
+  table.final button { padding: 6px 10px; font-size: 14px; }
+  table.final button.sel { outline: 3px solid #fff; }
+  /* редактор */
+  .ed-theme { background: var(--bg2); border: 2px solid #2b3fa0; border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+  .ed-q { display: grid; grid-template-columns: 56px 1fr 1fr; gap: 8px; margin-top: 8px; align-items: start; }
+  .ed-q .v { color: var(--gold); font-weight: 800; padding-top: 10px; }
+  .ed-q textarea { min-height: 54px; resize: vertical; }
+  @media (max-width: 640px) { .ed-q { grid-template-columns: 1fr; } .ed-q .v { padding-top: 0; } }
+  label.l { display: block; color: var(--muted); font-size: 14px; margin: 6px 0 3px; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--gold); color: #111; padding: 10px 18px; border-radius: 10px; font-weight: 700; z-index: 20; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Своя игра · <span class="muted">пульт</span></h1>
+  <div>Комната <span class="room" id="room">····</span></div>
+  <div class="status muted"><span class="dot" id="dot"></span><span id="status">подключаюсь…</span></div>
+  <div class="grow"></div>
+  <nav>
+    <button id="tabGame" class="on">Игра</button>
+    <button id="tabEdit">Вопросы</button>
+    <button id="btnScreen" class="ghost" title="Открыть экран для проектора в новой вкладке">Экран ↗</button>
+  </nav>
+</header>
+<main>
+  <section id="viewGame">
+    <div class="layout">
+      <div>
+        <div class="panel" id="control"></div>
+        <div class="panel"><h2>Табло <span class="muted" style="font-size:14px">(нажмите на цену, чтобы открыть вопрос)</span></h2><div id="board"></div></div>
+      </div>
+      <div>
+        <div class="panel players"><h2>Игроки <span id="pcount"></span></h2><div id="players"></div></div>
+        <div class="panel">
+          <h2>Вход для игроков</h2>
+          <div class="qr" id="qrSide" style="max-width:200px"></div>
+          <div class="link" id="linkSide"></div>
+          <div class="row">
+            <button id="btnCopy">Копировать ссылку</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Игра</h2>
+          <div class="row">
+            <button id="btnRestart" class="ghost">Заново, те же игроки</button>
+            <button id="btnNew" class="ghost">Новая игра (новый код)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="viewEdit" class="hidden">
+    <div class="panel">
+      <h2>Пакет вопросов</h2>
+      <p class="muted" style="margin-top:0">Изменения сохраняются в этом браузере сразу и сразу попадают в игру.
+        Чтобы перенести пакет на другой компьютер или приготовить несколько игр — «Скачать пакет» и потом «Загрузить пакет».</p>
+      <label class="l">Название пакета</label>
+      <input id="edTitle" />
+      <div class="row">
+        <button id="btnDownload" class="gold">Скачать пакет</button>
+        <button id="btnUpload">Загрузить пакет</button>
+        <button id="btnDefault" class="ghost">Вернуть стандартный пакет</button>
+        <input type="file" id="fileUpload" accept=".json,application/json" class="hidden" />
+      </div>
+    </div>
+    <div id="edThemes"></div>
+    <div class="ed-theme">
+      <h2 class="gold-text" style="margin:0 0 6px">Финал</h2>
+      <label class="l">Тема финала (видна игрокам, когда они делают ставки)</label>
+      <input id="edFinalTheme" />
+      <label class="l">Вопрос финала</label>
+      <textarea id="edFinalQ" style="min-height:70px"></textarea>
+      <label class="l">Правильный ответ</label>
+      <input id="edFinalA" />
+    </div>
+  </section>
+</main>
+
+<script src="lib/qrcode.js"></script>
+<script src="lib/supabase.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+'use strict';
+const { $, esc, store, VALUES } = SV;
+const PACK_KEY = 'svoya_pack', STATE_KEY = 'svoya_host_state' + (SV.local ? '_local' : '');
+
+let pack = null;   // вопросы
+let S = null;      // состояние игры (хранится в localStorage)
+let conn = null;
+let presence = new Set(); // id игроков, которые сейчас на связи
+const lastSeen = {};
+
+// ---------- Пакет вопросов ----------
+function normalizePack(p) {
+  if (!p || typeof p !== 'object') throw new Error('это не пакет вопросов');
+  const themes = Array.isArray(p.themes) ? p.themes : [];
+  if (!themes.length) throw new Error('в файле нет тем');
+  const out = { title: String(p.title || 'Пакет'), themes: [], final: {} };
+  for (let t = 0; t < 5; t++) {
+    const th = themes[t] || {};
+    const qs = Array.isArray(th.questions) ? th.questions : [];
+    out.themes.push({
+      name: String(th.name || 'Тема ' + (t + 1)),
+      questions: VALUES.map((v, i) => ({ q: String((qs[i] && qs[i].q) || ''), a: String((qs[i] && qs[i].a) || '') })),
+    });
+  }
+  const f = p.final || {};
+  out.final = { theme: String(f.theme || ''), q: String(f.q || ''), a: String(f.a || '') };
+  return out;
+}
+async function loadDefaultPack() {
+  const r = await fetch('questions.json', { cache: 'no-store' });
+  return normalizePack(await r.json());
+}
+function savePack() { store.set(PACK_KEY, pack); }
+
+// ---------- Состояние игры ----------
+function newCode() { return String(Math.floor(1000 + Math.random() * 9000)); }
+function freshState(room, players) {
+  return {
+    room, phase: 'lobby', players: players || [], removed: [], played: {},
+    cur: null, round: 0, buzz: [], wrong: [], firstAt: 0, openUntil: 0,
+    revealed: false, chooser: null, final: null,
+  };
+}
+function save() { store.set(STATE_KEY, S); }
+function player(id) { return S.players.find((p) => p.id === id); }
+function isOnline(id) { return SV.local || presence.has(id) || Date.now() - (lastSeen[id] || 0) < 8000; }
+function curValue() { return S.cur ? VALUES[S.cur.i] : 0; }
+function curQ() { return S.cur ? pack.themes[S.cur.t].questions[S.cur.i] : null; }
+
+function publicState() {
+  const q = curQ();
+  const F = S.final;
+  const fq = F && ['final_question', 'final_judge', 'final_results'].includes(S.phase);
+  const fr = F && S.phase === 'final_results';
+  return {
+    t: 'state', room: S.room, phase: S.phase, round: S.round,
+    players: S.players.map((p) => ({ id: p.id, name: p.name, score: p.score, online: isOnline(p.id) })),
+    themes: pack.themes.map((t) => t.name),
+    played: pack.themes.map((t, ti) => VALUES.map((v, i) => !!S.played[ti + '-' + i])),
+    cur: S.cur ? { t: S.cur.t, i: S.cur.i, theme: pack.themes[S.cur.t].name, value: curValue(), text: q.q, answer: S.revealed ? q.a : null } : null,
+    buzz: S.buzz, wrong: S.wrong, chooser: S.chooser,
+    timerLeft: S.phase === 'open' ? Math.max(0, S.openUntil - Date.now()) : null,
+    final: F ? {
+      theme: pack.final.theme, eligible: F.eligible,
+      betDone: Object.keys(F.bets), ansDone: Object.keys(F.answers),
+      text: fq ? pack.final.q : null, answer: fr ? pack.final.a : null,
+      results: fr ? F.eligible.map((id) => ({ id, bet: F.bets[id] || 0, answer: F.answers[id] || '', ok: !!F.marks[id] })) : null,
+    } : null,
+  };
+}
+function broadcast() { if (conn) conn.send(publicState()); }
+function commit() { save(); broadcast(); render(); }
+
+// ---------- Сообщения от игроков и экрана ----------
+function onMsg(m) {
+  if (!m || !m.t) return;
+  if (m.id) lastSeen[m.id] = Date.now();
+  switch (m.t) {
+    case 'hi': broadcast(); break;
+    case 'hello': {
+      const name = String(m.name || '').trim().slice(0, 24);
+      if (!m.id || !name) return;
+      if (S.removed.includes(m.id)) { conn.send({ t: 'kicked', id: m.id }); return; }
+      const p = player(m.id);
+      if (p) p.name = name;
+      else if (S.players.length < 40) S.players.push({ id: m.id, name, score: 0 });
+      commit();
+      break;
+    }
+    case 'buzz': onBuzz(m); break;
+    case 'bet': {
+      const F = S.final;
+      if (S.phase !== 'final_bets' || !F || !F.eligible.includes(m.id)) return;
+      const p = player(m.id); if (!p) return;
+      F.bets[m.id] = Math.max(1, Math.min(Math.max(p.score, 1), Math.round(Number(m.amount) || 0)));
+      commit();
+      break;
+    }
+    case 'fans': {
+      const F = S.final;
+      if (S.phase !== 'final_question' || !F || !F.eligible.includes(m.id)) return;
+      F.answers[m.id] = String(m.text || '').trim().slice(0, 200);
+      commit();
+      break;
+    }
+  }
+}
+
+// Кто первый — решает пульт: первое пришедшее сообщение в открытом раунде
+function onBuzz(m) {
+  if (m.round !== S.round || !player(m.id)) return;
+  if (S.wrong.includes(m.id) || S.buzz.some((b) => b.id === m.id)) return;
+  if (S.phase === 'open') {
+    S.phase = 'answering';
+    S.firstAt = Date.now();
+    S.buzz = [{ id: m.id, dt: 0 }];
+    SV.beep('buzz');
+    commit();
+  } else if (S.phase === 'answering' && S.buzz.length < 10) {
+    S.buzz.push({ id: m.id, dt: Date.now() - S.firstAt });
+    commit();
+  }
+}
+
+// ---------- Действия ведущего ----------
+const A = {
+  startBoard() { S.phase = 'board'; commit(); },
+  pick(t, i) {
+    if (!['board', 'lobby', 'reveal'].includes(S.phase)) return;
+    const key = t + '-' + i;
+    if (S.played[key] && !confirm('Этот вопрос уже сыгран. Открыть его снова?')) return;
+    S.cur = { t, i }; S.phase = 'question'; S.revealed = false; S.buzz = []; S.wrong = [];
+    commit();
+  },
+  open() {
+    S.round++; S.phase = 'open'; S.buzz = []; S.openUntil = Date.now() + SV.BUZZ_MS;
+    commit();
+  },
+  correct() {
+    const b = S.buzz[0]; const p = b && player(b.id);
+    if (p) { p.score += curValue(); S.chooser = p.id; }
+    S.revealed = true; S.played[S.cur.t + '-' + S.cur.i] = true; S.phase = 'reveal';
+    SV.beep('good');
+    commit();
+  },
+  wrong() {
+    const b = S.buzz[0]; const p = b && player(b.id);
+    if (p) { p.score -= curValue(); S.wrong.push(p.id); }
+    SV.beep('bad');
+    const left = S.players.filter((x) => !S.wrong.includes(x.id) && isOnline(x.id));
+    if (!left.length) { S.phase = 'timeout'; S.buzz = []; commit(); return; }
+    A.open();
+  },
+  nobody() {
+    S.revealed = true; S.played[S.cur.t + '-' + S.cur.i] = true; S.phase = 'reveal';
+    commit();
+  },
+  reveal() { S.revealed = true; commit(); },
+  cancel() { S.cur = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
+  toBoard() { S.cur = null; S.phase = 'board'; S.buzz = []; S.wrong = []; S.revealed = false; commit(); },
+  startFinal() {
+    const el = S.players.filter((p) => p.score > 0).map((p) => p.id);
+    if (!el.length) { alert('В финал проходят игроки с плюсом на счету, а таких сейчас нет.'); return; }
+    if (!confirm('Начать финал? Участвуют игроков: ' + el.length + '.')) return;
+    S.cur = null; S.buzz = []; S.wrong = [];
+    S.final = { eligible: el, bets: {}, answers: {}, marks: {} };
+    S.phase = 'final_bets';
+    commit();
+  },
+  cancelFinal() { if (!confirm('Отменить финал и вернуться к табло?')) return; S.final = null; S.phase = 'board'; commit(); },
+  finalQ() {
+    const F = S.final;
+    const miss = F.eligible.filter((id) => !(id in F.bets));
+    if (miss.length && !confirm('Ещё не сделали ставку: ' + miss.map((id) => (player(id) || {}).name).join(', ') + '.\nИх ставка будет 0. Показать вопрос?')) return;
+    miss.forEach((id) => (F.bets[id] = 0));
+    S.phase = 'final_question'; commit();
+  },
+  finalClose() { S.phase = 'final_judge'; commit(); },
+  mark(id, ok) { S.final.marks[id] = ok; commit(); },
+  finalDone() {
+    const F = S.final;
+    F.eligible.forEach((id) => {
+      const p = player(id); if (!p) return;
+      p.score += F.marks[id] ? F.bets[id] || 0 : -(F.bets[id] || 0);
+    });
+    S.phase = 'final_results'; SV.beep('good'); commit();
+  },
+  addScore(id, d) { const p = player(id); if (p) { p.score += d; commit(); } },
+  setScore(id) {
+    const p = player(id); if (!p) return;
+    const v = prompt('Новый счёт игрока «' + p.name + '»:', p.score);
+    if (v == null) return;
+    const n = parseInt(String(v).replace(/[^\d-]/g, ''), 10);
+    if (isNaN(n)) return;
+    p.score = n; commit();
+  },
+  remove(id) {
+    const p = player(id); if (!p) return;
+    if (!confirm('Удалить игрока «' + p.name + '»?')) return;
+    S.players = S.players.filter((x) => x.id !== id);
+    S.removed.push(id);
+    S.buzz = S.buzz.filter((b) => b.id !== id);
+    if (S.final) S.final.eligible = S.final.eligible.filter((x) => x !== id);
+    if (S.chooser === id) S.chooser = null;
+    if (S.phase === 'answering' && !S.buzz.length) { S.phase = 'open'; S.openUntil = Date.now() + SV.BUZZ_MS; S.round++; }
+    conn.send({ t: 'kicked', id });
+    commit();
+  },
+};
+
+// ---------- Отрисовка ----------
+function nameOf(id) { const p = player(id); return p ? p.name : '?'; }
+function fmtDt(ms) { return '+' + (ms / 1000).toFixed(2).replace('.', ',') + ' с'; }
+
+function renderControl() {
+  const el = $('#control');
+  const q = curQ();
+  const v = curValue();
+  const head = S.cur ? `<div class="qtitle">${esc(pack.themes[S.cur.t].name)} · ${v}</div><div class="qtext">${esc(q.q) || '<span class="muted">(вопрос не заполнен)</span>'}</div>
+      <div class="answer">Ответ: <b>${esc(q.a)}</b> ${S.revealed ? '<span class="muted">(виден на экране)</span>' : '<span class="muted">(видите только вы)</span>'}</div>` : '';
+  const timer = `<div class="timerbar"><div id="tfill"></div></div>`;
+  let h = '';
+  switch (S.phase) {
+    case 'lobby':
+      h = `<h2>Подключение игроков</h2>
+        <div class="qrbox"><div class="qr">${SV.qrSvg(playUrl())}</div>
+        <div><div style="font-size:22px">Игроки сканируют QR-код или открывают ссылку и вводят имя.</div>
+        <p class="link">${esc(playUrl())}</p>
+        <p class="muted">Подключилось: <b class="gold-text">${S.players.length}</b>. Позже тоже можно зайти.</p></div></div>
+        <div class="row"><button class="gold big" data-a="startBoard">Начать игру → табло</button></div>`;
+      break;
+    case 'board': {
+      const left = 25 - Object.keys(S.played).length;
+      h = `<h2>Выбор вопроса</h2>
+        <div style="font-size:22px">${S.chooser ? 'Выбирает: <b class="gold-text">' + esc(nameOf(S.chooser)) + '</b>' : 'Выберите вопрос на табло ниже.'}</div>
+        <p class="muted">Осталось вопросов: ${left}</p>
+        <div class="row"><button class="${left ? 'ghost' : 'gold big'}" data-a="startFinal">Финал →</button></div>`;
+      break;
+    }
+    case 'question':
+      h = head + `<p class="muted">Прочитайте вопрос вслух. Кнопки у игроков пока серые — кто нажмёт сейчас, получит фальстарт.</p>
+        <div class="row"><button class="gold big" data-a="open">Принимаю ответы (10 с)</button></div>
+        <div class="row"><button data-a="reveal">Показать ответ</button><button data-a="nobody">Никто не ответил</button><button class="ghost" data-a="cancel">Отменить вопрос</button></div>`;
+      break;
+    case 'open':
+      h = head + timer + `<div class="buzzer" style="color:var(--green)">Кнопки открыты — ждём нажатия…</div>
+        ${S.wrong.length ? '<div class="order">Уже ошиблись: ' + S.wrong.map((id) => esc(nameOf(id))).join(', ') + '</div>' : ''}
+        <div class="row"><button data-a="nobody">Никто не ответил</button><button data-a="reveal">Показать ответ</button></div>`;
+      break;
+    case 'answering': {
+      const [first, ...rest] = S.buzz;
+      h = head + `<div class="buzzer">Отвечает: ${esc(nameOf(first.id))}</div>
+        ${rest.length ? '<div class="order">Следом нажали: ' + rest.map((b, k) => (k + 2) + '. ' + esc(nameOf(b.id)) + ' <span class="muted">' + fmtDt(b.dt) + '</span>').join(' · ') + '</div>' : ''}
+        <div class="row"><button class="green big" data-a="correct">Верно +${v}</button><button class="red big" data-a="wrong">Неверно −${v}</button></div>
+        <div class="row"><button data-a="reveal">Показать ответ</button><button data-a="nobody">Никто не ответил</button></div>`;
+      break;
+    }
+    case 'timeout':
+      h = head + `<div class="buzzer" style="color:var(--muted)">${S.players.length && S.players.every((p) => S.wrong.includes(p.id) || !isOnline(p.id)) ? 'Ответить больше некому' : 'Время вышло — никто не нажал'}</div>
+        <div class="row"><button class="gold big" data-a="nobody">Никто не ответил — показать ответ</button><button data-a="open">Открыть ещё 10 с</button></div>`;
+      break;
+    case 'reveal':
+      h = head + `<div class="row"><button class="gold big" data-a="toBoard">К табло</button></div>`;
+      break;
+    case 'final_bets': {
+      const F = S.final;
+      h = `<div class="qtitle">ФИНАЛ · тема: ${esc(pack.final.theme)}</div>
+        <p>Игроки с плюсом на счету делают ставки на телефонах.</p>
+        <table class="final"><tr><th>Игрок</th><th>Счёт</th><th>Ставка</th></tr>
+        ${F.eligible.map((id) => `<tr><td>${esc(nameOf(id))}</td><td class="gold-text">${SV.money((player(id) || {}).score || 0)}</td><td>${id in F.bets ? '<b>' + F.bets[id] + '</b>' : '<span class="muted">ждём…</span>'}</td></tr>`).join('')}</table>
+        <div class="row"><button class="gold big" data-a="finalQ">Показать финальный вопрос</button><button class="ghost" data-a="cancelFinal">Отменить финал</button></div>`;
+      break;
+    }
+    case 'final_question':
+    case 'final_judge': {
+      const F = S.final, judge = S.phase === 'final_judge';
+      h = `<div class="qtitle">ФИНАЛ · ${esc(pack.final.theme)}</div><div class="qtext">${esc(pack.final.q)}</div>
+        <div class="answer">Ответ: <b>${esc(pack.final.a)}</b></div>
+        <table class="final"><tr><th>Игрок</th><th>Ставка</th><th>Ответ</th>${judge ? '<th>Отметка</th>' : ''}</tr>
+        ${F.eligible.map((id) => `<tr><td>${esc(nameOf(id))}</td><td>${F.bets[id] || 0}</td><td>${id in F.answers ? '<b>' + (esc(F.answers[id]) || '<span class="muted">(пусто)</span>') + '</b>' : '<span class="muted">пишет…</span>'}</td>
+          ${judge ? `<td><button class="green ${F.marks[id] === true ? 'sel' : ''}" data-a="mark" data-id="${esc(id)}" data-ok="1">Верно</button>
+          <button class="red ${F.marks[id] === false ? 'sel' : ''}" data-a="mark" data-id="${esc(id)}" data-ok="0">Неверно</button></td>` : ''}</tr>`).join('')}</table>
+        <div class="row">${judge
+          ? `<button class="gold big" data-a="finalDone" ${F.eligible.every((id) => id in F.marks) ? '' : 'disabled'}>Подвести итоги</button>`
+          : '<button class="gold big" data-a="finalClose">Закончить приём ответов</button>'}</div>`;
+      break;
+    }
+    case 'final_results': {
+      const top = [...S.players].sort((a, b) => b.score - a.score);
+      h = `<div class="qtitle">ИТОГИ ИГРЫ</div><div class="answer">Ответ финала: <b>${esc(pack.final.a)}</b></div>
+        <ol style="font-size:22px">${top.map((p) => `<li>${esc(p.name)} — <b class="gold-text">${SV.money(p.score)}</b></li>`).join('')}</ol>
+        <div class="row"><button class="ghost" data-a="toBoard">Вернуться к табло</button></div>`;
+      break;
+    }
+  }
+  el.innerHTML = h;
+  tick();
+}
+
+function renderBoard() {
+  let h = '<div class="board">';
+  pack.themes.forEach((t, ti) => {
+    h += `<div class="theme">${esc(t.name)}</div>`;
+    VALUES.forEach((v, i) => {
+      const played = S.played[ti + '-' + i];
+      const cur = S.cur && S.cur.t === ti && S.cur.i === i;
+      h += `<button class="cell ${played ? 'played' : ''} ${cur ? 'current' : ''}" data-a="pick" data-t="${ti}" data-i="${i}">${v}</button>`;
+    });
+  });
+  $('#board').innerHTML = h + '</div>';
+}
+
+function renderPlayers() {
+  const first = S.buzz[0] && S.buzz[0].id;
+  $('#pcount').textContent = '(' + S.players.length + ')';
+  $('#players').innerHTML = S.players.length ? S.players.map((p) => `
+    <div class="p ${p.id === first ? 'first' : ''} ${S.wrong.includes(p.id) ? 'wrong' : ''}">
+      <span class="dot ${isOnline(p.id) ? 'on' : ''}" title="${isOnline(p.id) ? 'на связи' : 'не на связи'}"></span>
+      <span class="nm">${esc(p.name)}</span>
+      <span class="sc">${SV.money(p.score)}</span>
+      <button data-a="addScore" data-id="${esc(p.id)}" data-d="-100" title="−100">−</button>
+      <button data-a="addScore" data-id="${esc(p.id)}" data-d="100" title="+100">+</button>
+      <button data-a="setScore" data-id="${esc(p.id)}" title="Изменить счёт">✎</button>
+      <button class="red" data-a="remove" data-id="${esc(p.id)}" title="Удалить игрока">✕</button>
+    </div>`).join('') : '<p class="muted">Пока никого. Покажите игрокам QR-код.</p>';
+}
+
+function playUrl() { return SV.pageUrl('play.html', S.room); }
+function render() {
+  $('#room').textContent = S.room;
+  renderControl(); renderBoard(); renderPlayers();
+  const url = playUrl();
+  if ($('#linkSide').textContent !== url) { $('#linkSide').textContent = url; $('#qrSide').innerHTML = SV.qrSvg(url); }
+}
+
+// таймер 10 секунд
+function tick() {
+  if (S.phase === 'open') {
+    const left = S.openUntil - Date.now();
+    const f = $('#tfill'); if (f) f.style.width = Math.max(0, (left / SV.BUZZ_MS) * 100) + '%';
+    if (left <= 0) { S.phase = 'timeout'; commit(); }
+  }
+}
+setInterval(tick, 200);
+setInterval(broadcast, 4000); // на случай, если кто-то пропустил сообщение
+setInterval(() => renderPlayers(), 5000); // обновить «на связи»
+
+// кнопки пульта
+document.addEventListener('click', (e) => {
+  SV.unlockAudio();
+  const b = e.target.closest('[data-a]');
+  if (!b || b.disabled) return;
+  const a = b.dataset.a, d = b.dataset;
+  if (a === 'pick') A.pick(+d.t, +d.i);
+  else if (a === 'mark') A.mark(d.id, d.ok === '1');
+  else if (a === 'addScore') A.addScore(d.id, +d.d);
+  else if (a === 'setScore' || a === 'remove') A[a](d.id);
+  else if (A[a]) A[a]();
+});
+
+function toast(t) {
+  const d = document.createElement('div'); d.className = 'toast'; d.textContent = t;
+  document.body.appendChild(d); setTimeout(() => d.remove(), 2200);
+}
+
+$('#btnCopy').onclick = () => {
+  const url = playUrl();
+  (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Ссылка скопирована'), () => prompt('Скопируйте ссылку:', url));
+};
+$('#btnScreen').onclick = () => window.open(SV.pageUrl('screen.html', S.room), '_blank');
+$('#btnRestart').onclick = () => {
+  if (!confirm('Начать заново с теми же игроками? Счёт обнулится, все вопросы снова откроются.')) return;
+  const players = S.players.map((p) => ({ ...p, score: 0 }));
+  const removed = S.removed;
+  S = freshState(S.room, players); S.removed = removed; S.phase = 'board';
+  commit();
+};
+$('#btnNew').onclick = () => {
+  if (!confirm('Создать новую игру с новым кодом комнаты? Текущие игроки и счёт будут удалены.')) return;
+  store.set(STATE_KEY, freshState(newCode()));
+  location.reload();
+};
+
+// ---------- Вкладки ----------
+function showTab(edit) {
+  $('#viewGame').classList.toggle('hidden', edit);
+  $('#viewEdit').classList.toggle('hidden', !edit);
+  $('#tabGame').classList.toggle('on', !edit);
+  $('#tabEdit').classList.toggle('on', edit);
+  if (edit) renderEditor();
+}
+$('#tabGame').onclick = () => showTab(false);
+$('#tabEdit').onclick = () => showTab(true);
+
+// ---------- Редактор вопросов ----------
+let edTimer = null;
+function packChanged() {
+  savePack();
+  clearTimeout(edTimer);
+  edTimer = setTimeout(() => { broadcast(); render(); }, 600);
+}
+function renderEditor() {
+  $('#edTitle').value = pack.title;
+  $('#edThemes').innerHTML = pack.themes.map((t, ti) => `
+    <div class="ed-theme">
+      <label class="l">Тема ${ti + 1}</label>
+      <input data-ed="theme" data-t="${ti}" value="${esc(t.name)}" style="font-weight:700" />
+      ${t.questions.map((q, i) => `
+        <div class="ed-q"><div class="v">${VALUES[i]}</div>
+          <textarea data-ed="q" data-t="${ti}" data-i="${i}" placeholder="Вопрос">${esc(q.q)}</textarea>
+          <textarea data-ed="a" data-t="${ti}" data-i="${i}" placeholder="Ответ">${esc(q.a)}</textarea></div>`).join('')}
+    </div>`).join('');
+  $('#edFinalTheme').value = pack.final.theme;
+  $('#edFinalQ').value = pack.final.q;
+  $('#edFinalA').value = pack.final.a;
+}
+$('#viewEdit').addEventListener('input', (e) => {
+  const el = e.target, d = el.dataset;
+  if (el.id === 'edTitle') pack.title = el.value;
+  else if (el.id === 'edFinalTheme') pack.final.theme = el.value;
+  else if (el.id === 'edFinalQ') pack.final.q = el.value;
+  else if (el.id === 'edFinalA') pack.final.a = el.value;
+  else if (d.ed === 'theme') pack.themes[+d.t].name = el.value;
+  else if (d.ed === 'q') pack.themes[+d.t].questions[+d.i].q = el.value;
+  else if (d.ed === 'a') pack.themes[+d.t].questions[+d.i].a = el.value;
+  else return;
+  packChanged();
+});
+$('#btnDownload').onclick = () => {
+  const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (pack.title || 'пакет').replace(/[\\/:*?"<>|]+/g, '_') + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('#btnUpload').onclick = () => $('#fileUpload').click();
+$('#fileUpload').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    pack = normalizePack(JSON.parse(await f.text()));
+    savePack(); renderEditor(); broadcast(); render();
+    toast('Пакет «' + pack.title + '» загружен');
+  } catch (err) { alert('Не удалось загрузить пакет: ' + err.message); }
+};
+$('#btnDefault').onclick = async () => {
+  if (!confirm('Заменить текущие вопросы стандартным пакетом? Сначала можно «Скачать пакет», чтобы не потерять свои.')) return;
+  pack = await loadDefaultPack(); savePack(); renderEditor(); broadcast(); render();
+};
+
+// ---------- Запуск ----------
+(async function init() {
+  try { pack = store.get(PACK_KEY, null) ? normalizePack(store.get(PACK_KEY)) : await loadDefaultPack(); }
+  catch (e) { alert('Не удалось загрузить вопросы: ' + e.message); return; }
+  savePack();
+  S = store.get(STATE_KEY, null) || freshState(newCode());
+  save();
+  render();
+  conn = SV.connect(S.room, {
+    key: 'host',
+    meta: { role: 'host' },
+    onMsg,
+    onPresence(ps) {
+      const s = new Set();
+      Object.values(ps).forEach((metas) => metas.forEach((m) => m.role === 'player' && m.pid && s.add(m.pid)));
+      presence = s; renderPlayers(); broadcast();
+    },
+    onStatus(st) {
+      $('#status').textContent = (SV.local ? 'тестовый режим · ' : '') + SV.statusText(st);
+      $('#dot').classList.toggle('on', st === 'ok');
+      if (st === 'ok') broadcast();
+    },
+  });
+})();
+</script>
+</body>
+</html>
