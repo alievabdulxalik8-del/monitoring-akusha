@@ -67,6 +67,7 @@
     <button id="btnScreen" class="ghost" title="Открыть экран для проектора в новой вкладке">Экран ↗</button>
   </nav>
 </header>
+<div id="dup" class="hidden" style="background:var(--red);padding:10px 14px;font-weight:700">⚠ Этот пульт открыт ещё в одной вкладке или на другом устройстве. Закройте лишний, иначе игра будет сбиваться.</div>
 <main>
   <section id="viewGame">
     <div class="layout">
@@ -169,10 +170,17 @@ function freshState(room, players) {
   return {
     room, phase: 'lobby', players: players || [], removed: [], played: {},
     cur: null, round: 0, buzz: [], wrong: [], firstAt: 0, openUntil: 0,
-    revealed: false, chooser: null, final: null,
+    revealed: false, chooser: null, correctId: null, final: null,
   };
 }
 function save() { store.set(STATE_KEY, S); }
+// два игрока с одинаковым именем → «Али 2»
+function uniqueName(name, id) {
+  const taken = (n) => S.players.some((p) => p.id !== id && p.name.toLowerCase() === n.toLowerCase());
+  let n = name, k = 2;
+  while (taken(n)) n = name + ' ' + k++;
+  return n;
+}
 function player(id) { return S.players.find((p) => p.id === id); }
 function isOnline(id) { return SV.local || presence.has(id) || Date.now() - (lastSeen[id] || 0) < 8000; }
 function curValue() { return S.cur ? VALUES[S.cur.i] : 0; }
@@ -189,7 +197,7 @@ function publicState() {
     themes: pack.themes.map((t) => t.name),
     played: pack.themes.map((t, ti) => VALUES.map((v, i) => !!S.played[ti + '-' + i])),
     cur: S.cur ? { t: S.cur.t, i: S.cur.i, theme: pack.themes[S.cur.t].name, value: curValue(), text: q.q, answer: S.revealed ? q.a : null } : null,
-    buzz: S.buzz, wrong: S.wrong, chooser: S.chooser,
+    buzz: S.buzz, wrong: S.wrong, chooser: S.chooser, correct: S.correctId || null,
     timerLeft: S.phase === 'open' ? Math.max(0, S.openUntil - Date.now()) : null,
     final: F ? {
       theme: pack.final.theme, eligible: F.eligible,
@@ -213,8 +221,9 @@ function onMsg(m) {
       if (!m.id || !name) return;
       if (S.removed.includes(m.id)) { conn.send({ t: 'kicked', id: m.id }); return; }
       const p = player(m.id);
-      if (p) p.name = name;
-      else if (S.players.length < 40) S.players.push({ id: m.id, name, score: 0 });
+      const nm = uniqueName(name, m.id);
+      if (p) p.name = nm;
+      else if (S.players.length < 40) S.players.push({ id: m.id, name: nm, score: 0 });
       commit();
       break;
     }
@@ -242,6 +251,7 @@ function onBuzz(m) {
   if (m.round !== S.round || !player(m.id)) return;
   if (S.wrong.includes(m.id) || S.buzz.some((b) => b.id === m.id)) return;
   if (S.phase === 'open') {
+    if (Date.now() > S.openUntil + 300) return; // время уже вышло
     S.phase = 'answering';
     S.firstAt = Date.now();
     S.buzz = [{ id: m.id, dt: 0 }];
@@ -260,7 +270,7 @@ const A = {
     if (!['board', 'lobby', 'reveal'].includes(S.phase)) return;
     const key = t + '-' + i;
     if (S.played[key] && !confirm('Этот вопрос уже сыгран. Открыть его снова?')) return;
-    S.cur = { t, i }; S.phase = 'question'; S.revealed = false; S.buzz = []; S.wrong = [];
+    S.cur = { t, i }; S.phase = 'question'; S.revealed = false; S.buzz = []; S.wrong = []; S.correctId = null;
     commit();
   },
   open() {
@@ -269,7 +279,7 @@ const A = {
   },
   correct() {
     const b = S.buzz[0]; const p = b && player(b.id);
-    if (p) { p.score += curValue(); S.chooser = p.id; }
+    if (p) { p.score += curValue(); S.chooser = p.id; S.correctId = p.id; }
     S.revealed = true; S.played[S.cur.t + '-' + S.cur.i] = true; S.phase = 'reveal';
     SV.beep('good');
     commit();
@@ -304,6 +314,7 @@ const A = {
     const miss = F.eligible.filter((id) => !(id in F.bets));
     if (miss.length && !confirm('Ещё не сделали ставку: ' + miss.map((id) => (player(id) || {}).name).join(', ') + '.\nИх ставка будет 0. Показать вопрос?')) return;
     miss.forEach((id) => (F.bets[id] = 0));
+    F.eligible.forEach((id) => { const p = player(id); if (p) F.bets[id] = Math.min(F.bets[id], Math.max(p.score, 0)); });
     S.phase = 'final_question'; commit();
   },
   finalClose() { S.phase = 'final_judge'; commit(); },
@@ -477,11 +488,16 @@ setInterval(broadcast, 4000); // на случай, если кто-то про�
 setInterval(() => renderPlayers(), 5000); // обновить «на связи»
 
 // кнопки пульта
+let lastClick = 0;
 document.addEventListener('click', (e) => {
   SV.unlockAudio();
   const b = e.target.closest('[data-a]');
   if (!b || b.disabled) return;
   const a = b.dataset.a, d = b.dataset;
+  if (a !== 'addScore') {
+    if (Date.now() - lastClick < 450) return;
+    lastClick = Date.now();
+  }
   if (a === 'pick') A.pick(+d.t, +d.i);
   else if (a === 'mark') A.mark(d.id, d.ok === '1');
   else if (a === 'addScore') A.addScore(d.id, +d.d);
@@ -503,7 +519,8 @@ $('#btnRestart').onclick = () => {
   if (!confirm('Начать заново с теми же игроками? Счёт обнулится, все вопросы снова откроются.')) return;
   const players = S.players.map((p) => ({ ...p, score: 0 }));
   const removed = S.removed;
-  S = freshState(S.room, players); S.removed = removed; S.phase = 'board';
+  const round = S.round;
+  S = freshState(S.room, players); S.removed = removed; S.round = round; S.phase = 'board';
   commit();
 };
 $('#btnNew').onclick = () => {
@@ -581,6 +598,7 @@ $('#btnDefault').onclick = async () => {
 };
 
 // ---------- Запуск ----------
+SV.keepAwake();
 (async function init() {
   try { pack = store.get(PACK_KEY, null) && store.get(PACK_KEY + '_custom', false) ? normalizePack(store.get(PACK_KEY)) : await loadDefaultPack(); }
   catch (e) { alert('Не удалось загрузить вопросы: ' + e.message); return; }
@@ -589,12 +607,14 @@ $('#btnDefault').onclick = async () => {
   save();
   render();
   conn = SV.connect(S.room, {
-    key: 'host',
+    key: 'host-' + SV.uid(),
     meta: { role: 'host' },
     onMsg,
     onPresence(ps) {
       const s = new Set();
-      Object.values(ps).forEach((metas) => metas.forEach((m) => m.role === 'player' && m.pid && s.add(m.pid)));
+      let hosts = 0;
+      Object.values(ps).forEach((metas) => metas.forEach((m) => { if (m.role === 'player' && m.pid) s.add(m.pid); if (m.role === 'host') hosts++; }));
+      $('#dup').classList.toggle('hidden', hosts < 2);
       presence = s; renderPlayers(); broadcast();
     },
     onStatus(st) {

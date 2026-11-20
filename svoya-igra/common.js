@@ -103,6 +103,18 @@
     };
   };
 
+  // Не давать экрану телефона гаснуть во время игры
+  SV.keepAwake = () => {
+    let lock = null;
+    const req = () => {
+      if (!('wakeLock' in navigator) || document.hidden) return;
+      navigator.wakeLock.request('screen').then((l) => (lock = l), () => {});
+    };
+    req();
+    document.addEventListener('visibilitychange', req);
+    document.addEventListener('click', () => { if (!lock || lock.released) req(); });
+  };
+
   SV.statusText = (s) =>
     s === 'ok' ? 'связь есть' : s === 'nokey' ? 'не указан ключ Supabase (config.js)' : s === 'bad' ? 'нет связи, переподключаюсь…' : 'подключаюсь…';
 })();

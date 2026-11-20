@@ -183,8 +183,7 @@ function render() {
       h = head + `<div class="state">Время вышло</div>` + ans;
       break;
     case 'reveal': {
-      const ok = st.chooser && st.buzz[0] && st.buzz[0].id === st.chooser;
-      h = head + ans + (ok ? `<div class="state">Верно ответил(а): <b class="gold-text">${esc(nameOf(st.chooser))}</b></div>` : '');
+      h = head + ans + (st.correct ? `<div class="state">Верно ответил(а): <b class="gold-text">${esc(nameOf(st.correct))}</b></div>` : '');
       break;
     }
     case 'final_bets': {
